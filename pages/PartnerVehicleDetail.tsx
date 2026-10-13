@@ -1120,26 +1120,8 @@ const PartnerVehicleDetail: React.FC = () => {
           <ul className="list-disc pl-5 space-y-0.5">{formErrors.map((er) => <li key={er}>{er}</li>)}</ul>
         </div>
       )}
-      {/* KHỐI 1: THÔNG TIN XE (Khớp ảnh 1.2 & 1.3 & SCR-04) */}
-      <Section
-        title={isCreate ? 'Thêm mới phương tiện' : 'Thông tin xe'}
-        number={1}
-        icon={<Truck size={16} />}
-        rightNode={
-          !editing && !isCreate && canEditVehicle && (
-            <button
-              type="button"
-              onClick={handleStartEdit}
-              className="text-white hover:text-white/80 p-1 rounded"
-              title="Chỉnh sửa thông tin xe"
-            >
-              <Pencil size={15} />
-            </button>
-          )
-        }
-      >
-        {/* Banner chú ý khi ở chế độ thêm mới hoặc sửa */}
-        {isCreate ? (
+      {/* Banner chú ý khi ở chế độ thêm mới hoặc sửa */}
+      {isCreate ? (
           <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs text-emerald-900 flex items-center gap-2">
             <Info size={15} className="text-emerald-600 shrink-0" />
             <span>
@@ -1155,11 +1137,24 @@ const PartnerVehicleDetail: React.FC = () => {
           </div>
         ) : null}
 
-        <SubTitle>Thông tin</SubTitle>
-
-        {/* Lưới 4 cột x 4 dòng chuẩn xác theo ảnh mẫu 1.2 & 1.3 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {/* CỘT 1 */}
+      <Section
+        title="Thông tin xe"
+        number={1}
+        icon={<Truck size={16} />}
+        rightNode={
+          !editing && !isCreate && canEditVehicle && (
+            <button
+              type="button"
+              onClick={handleStartEdit}
+              className="text-white hover:text-white/80 p-1 rounded"
+              title="Chỉnh sửa thông tin xe"
+            >
+              <Pencil size={15} />
+            </button>
+          )
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <Label required={editing}>Biển số</Label>
             <input
@@ -1262,33 +1257,11 @@ const PartnerVehicleDetail: React.FC = () => {
               className={fieldControlClass(!editing)}
             />
           </div>
+        </div>
+      </Section>
 
-          {/* DÒNG 3 */}
-          {/* CỘT 1 */}
-          <div>
-            <Label required={isCreate}>Trạm</Label>
-            {isCreate ? (
-              <select
-                value={editForm.stationId}
-                onChange={(e) => setEditForm({ ...editForm, stationId: e.target.value })}
-                className={fieldControlClass(false)}
-              >
-                {STATION_OPTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                value={orgName(vehicle.stationId)}
-                readOnly
-                className={fieldControlClass(true)}
-              />
-            )}
-          </div>
-          {/* CỘT 2 */}
+      <Section title="Thông số kỹ thuật" number={2} icon={<Wrench size={16} />}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <Label required={editing}>Loại xe</Label>
             {editing ? (
@@ -1366,8 +1339,80 @@ const PartnerVehicleDetail: React.FC = () => {
               placeholder="VD: 3 tấn hoặc —"
             />
           </div>
-          {/* CỘT 3 & 4: Tài xế chịu trách nhiệm (Quan hệ N - N: nhiều tài xế trên 1 xe) */}
-          <div className="md:col-span-2 lg:col-span-2">
+        </div>
+        <div className="mt-6 pt-4 border-t border-gray-100">
+          <SubTitle>Dịch vụ đáp ứng</SubTitle>
+          {editing ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              {[
+                'Xe hết pin',
+                'Kích bình ắc quy',
+                'Cẩu kéo xe tai nạn',
+                'Kéo xe ngập nước',
+                'Thay lốp dự phòng',
+                'Cẩu xe kẹt số P',
+                'Tiếp nhiên liệu',
+              ].map((srv) => (
+                <label key={srv} className="flex items-center gap-2 cursor-pointer text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={editForm.services?.includes(srv)}
+                    onChange={(e) => {
+                      const cur = editForm.services ?? [];
+                      if (e.target.checked) setEditForm({ ...editForm, services: [...cur, srv] });
+                      else setEditForm({ ...editForm, services: cur.filter((s) => s !== srv) });
+                    }}
+                    className="accent-[#00A859]"
+                  />
+                  <span>{srv}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {vehicle.services && vehicle.services.length > 0 ? (
+                vehicle.services.map((srv) => (
+                  <span
+                    key={srv}
+                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                  >
+                    {srv}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-red-500 font-medium">Chưa khai báo dịch vụ</span>
+              )}
+            </div>
+          )}
+        </div>
+      </Section>
+
+      <Section title="Trạm quản lý" number={3} icon={<Users size={16} />}>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <div>
+            <Label required={isCreate}>Trạm</Label>
+            {isCreate ? (
+              <select
+                value={editForm.stationId}
+                onChange={(e) => setEditForm({ ...editForm, stationId: e.target.value })}
+                className={fieldControlClass(false)}
+              >
+                {STATION_OPTIONS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={orgName(vehicle.stationId)}
+                readOnly
+                className={fieldControlClass(true)}
+              />
+            )}
+          </div>
+          <div className="lg:col-span-3">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5">
                 <Label>Tài xế chịu trách nhiệm</Label>
@@ -1476,9 +1521,11 @@ const PartnerVehicleDetail: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      </Section>
 
-          {/* DÒNG 5 (Chuẩn hóa FDD FL-M1-01 SCR-02 & FL-M6-06 UI-C01) */}
-          {/* CỘT 1: Thiết bị GPS (IMEI) */}
+      <Section title="Thiết bị theo dõi" number={4} icon={<Radio size={16} />}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <div className="flex items-center justify-between mb-1">
               <Label>Thiết bị GPS (IMEI)</Label>
@@ -1534,58 +1581,10 @@ const PartnerVehicleDetail: React.FC = () => {
             />
           </div>
         </div>
+      </Section>
 
-        {/* DỊCH VỤ ĐÁP ỨNG */}
-        <div className="mb-6 pt-3 border-t border-gray-100">
-          <SubTitle>Dịch vụ đáp ứng</SubTitle>
-          {editing ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              {[
-                'Xe hết pin',
-                'Kích bình ắc quy',
-                'Cẩu kéo xe tai nạn',
-                'Kéo xe ngập nước',
-                'Thay lốp dự phòng',
-                'Cẩu xe kẹt số P',
-                'Tiếp nhiên liệu',
-              ].map((srv) => (
-                <label key={srv} className="flex items-center gap-2 cursor-pointer text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={editForm.services?.includes(srv)}
-                    onChange={(e) => {
-                      const cur = editForm.services ?? [];
-                      if (e.target.checked) setEditForm({ ...editForm, services: [...cur, srv] });
-                      else setEditForm({ ...editForm, services: cur.filter((s) => s !== srv) });
-                    }}
-                    className="accent-[#00A859]"
-                  />
-                  <span>{srv}</span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {vehicle.services && vehicle.services.length > 0 ? (
-                vehicle.services.map((srv) => (
-                  <span
-                    key={srv}
-                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
-                  >
-                    {srv}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-red-500 font-medium">Chưa khai báo dịch vụ</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* HÌNH ẢNH (Khớp ảnh 1.2 & 1.3) */}
-        <div className="mb-6 pt-3 border-t border-gray-100">
-          <SubTitle>Hình ảnh</SubTitle>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+      <Section title="Hình ảnh" number={5} icon={<ImageIcon size={16} />}>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {(['Góc trước', 'Góc sau', 'Bên trái', 'Bên phải'] as const).map((slotLabel) => {
               const photo = photos.find((p) => p.label === slotLabel);
               return (
@@ -1657,32 +1656,30 @@ const PartnerVehicleDetail: React.FC = () => {
                 <span className="text-xs font-bold">Thêm ảnh</span>
               </button>
             )}
-          </div>
         </div>
+      </Section>
 
-        {/* GIẤY TỜ */}
-        <div className="pt-3 border-t border-gray-100">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <SubTitle>Giấy tờ</SubTitle>
-              <span className="text-xs text-gray-500 font-medium">({docs.length} tài liệu)</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {editing && (
-                <button
-                  type="button"
-                  onClick={handleOpenAddDoc}
-                  className="inline-flex items-center gap-1.5 bg-[#00A859] hover:bg-[#008f4c] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm"
-                >
-                  <Plus size={14} />
-                  <span>+ Đính kèm giấy tờ</span>
-                </button>
-              )}
-            </div>
+      <Section
+        title="Giấy tờ"
+        number={6}
+        icon={<FileText size={16} />}
+        rightNode={
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-white/80">{docs.length} tài liệu</span>
+            {editing && (
+              <button
+                type="button"
+                onClick={handleOpenAddDoc}
+                className="inline-flex items-center gap-1.5 bg-white text-[#00A859] px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-50 transition"
+              >
+                <Plus size={14} />
+                <span>Đính kèm</span>
+              </button>
+            )}
           </div>
-
-          <div className="space-y-3">
+        }
+      >
+        <div className="space-y-3">
               <div className="overflow-x-auto rounded-lg border border-gray-100">
                 <table className="w-full text-xs border-collapse">
                   <thead>
@@ -1811,7 +1808,6 @@ const PartnerVehicleDetail: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-            </div>
         </div>
       </Section>
 
@@ -1819,7 +1815,7 @@ const PartnerVehicleDetail: React.FC = () => {
       {!isCreate && (
         <Section
           title="Lịch sử hành trình & Camera trước xe"
-          number={2}
+          number={7}
           icon={<MapPin size={16} />}
           rightNode={(
             <div className="flex items-center gap-1.5 bg-white/20 p-1 rounded-lg text-xs">
@@ -2146,7 +2142,7 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* KHỐI 3: CÔNG CỤ THEO XE VÀ TÌNH TRẠNG (Khớp ảnh 1.2 & 1.3 - Ẩn ở SCR-04 theo FDD) */}
       {!isCreate && (
-        <Section title="Công cụ theo xe và tình trạng" number={3} icon={<Wrench size={16} />}>
+        <Section title="Công cụ theo xe và tình trạng" number={8} icon={<Wrench size={16} />}>
           {/* Badges đếm */}
           <div className="mb-3 flex items-center gap-2">
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
@@ -2245,7 +2241,7 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* KHỐI 4: LỊCH SỬ THAY ĐỔI & NHẬT KÝ HOẠT ĐỘNG (B-HISTORY - Khớp FDD FL-M1-01) */}
       {!isCreate && (
-        <Section title="Lịch sử thay đổi & Nhật ký hoạt động (Audit Log)" number={4} icon={<History size={16} />}>
+        <Section title="Lịch sử thay đổi & Nhật ký hoạt động (Audit Log)" number={9} icon={<History size={16} />}>
           <div className="mb-3 flex flex-wrap gap-1.5">
             {AUDIT_FILTERS.map((ft) => (
               <button
