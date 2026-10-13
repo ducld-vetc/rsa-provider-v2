@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PartnerScopeBar, { getStoredPersona } from '../components/PartnerScopeBar';
+import { QUICK_FILTERS, fleetRowOf, matchQuick, statusLabelOf, type QuickKey } from './vehicleFleetView';
 import {
   PartnerModal,
   partnerBtnBrand,
@@ -33,11 +34,13 @@ import {
   PARTNER_STAFF,
   STATION_OPTIONS,
   VEHICLES,
+  RESCUE_CAPABILITY_LABEL,
   VEHICLE_TYPE_LABEL,
   driverName,
   driverNames,
   inScope,
   nextHnl,
+  normalizePlate,
   orgName,
   registerTransfer,
   registerVehicle,
@@ -45,6 +48,7 @@ import {
   updateVehicle,
   type PartnerPersona,
   type VehicleRecord,
+  type RescueCapability,
   type VehicleType,
   toolReady,
   toolQtyOf,
@@ -170,7 +174,7 @@ const parseImportRows = (rows: Record<string, unknown>[], existingPlates: Set<st
   rows
     .filter((row) => !isBlankImportRow(row))
     .map((row) => {
-      const plate = cell(row, 'Biển số', 'Bien so', 'plate');
+      const plate = normalizePlate(cell(row, 'Biển số', 'Bien so', 'plate'));
       const type = parseType(cell(row, 'Loại xe', 'Loai xe'));
       const stationId = parseStation(cell(row, 'Trạm', 'Tram'));
       const runRaw = cell(row, 'Tình trạng', 'Tinh trang').toLowerCase();
@@ -179,7 +183,7 @@ const parseImportRows = (rows: Record<string, unknown>[], existingPlates: Set<st
       const year = Number(cell(row, 'Năm SX', 'Nam SX')) || new Date().getFullYear();
       let error = '';
       if (!plate) error = 'Thiếu biển số';
-      else if (existingPlates.has(plate.toLowerCase())) error = 'Biển số đã tồn tại';
+      else if (existingPlates.has(plate)) error = 'Biển số đã tồn tại';
       else if (!type) error = 'Loại xe không hợp lệ';
       else if (!stationId) error = 'Không khớp trạm';
       return {
@@ -211,6 +215,10 @@ const PartnerVehicleList: React.FC = () => {
   const [stationId, setStationId] = useState('');
   const [type, setType] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [q, setQ] = useState('');
+  const [owner, setOwner] = useState('');
+  const [quick, setQuick] = useState<QuickKey>('all');
+  const [rescueCap, setRescueCap] = useState('');
 
   // Bộ lọc đã áp dụng (chỉ kích hoạt tìm kiếm khi ấn nút "Tìm kiếm" hoặc nhấn Enter)
   const [appliedFilters, setAppliedFilters] = useState({
@@ -271,6 +279,17 @@ const PartnerVehicleList: React.FC = () => {
   const [signalLostModalOpen, setSignalLostModalOpen] = useState(false);
 
   const [vehicles, setVehicles] = useState<VehicleRecord[]>(VEHICLES);
+
+  const inPersona = useMemo(() => {
+    let rows = vehicles.filter((v) => inScope(persona, v.stationId));
+    if (persona.role === 'NVCH') rows = rows.filter((v) => v.id === 'v1');
+    return rows;
+  }, [vehicles, persona]);
+
+  const selectVehicleType = (next: string) => {
+    setType(next);
+    setAppliedFilters((prev) => ({ ...prev, type: next }));
+  };
 
   // DLG-02: Điều chuyển xe
   const [transferOf, setTransferOf] = useState<VehicleRecord | null>(null);
@@ -340,55 +359,29 @@ const PartnerVehicleList: React.FC = () => {
     let rows = vehicles.filter((v) => inScope(persona, v.stationId));
     if (persona.role === 'NVCH') rows = rows.filter((v) => v.id === 'v1');
 
-    if (appliedFilters.plate.trim()) {
-      rows = rows.filter((v) => v.plate.toLowerCase().includes(appliedFilters.plate.trim().toLowerCase()));
-    }
-    if (appliedFilters.hnlCode.trim()) {
-      rows = rows.filter((v) => String(v.hnl).toUpperCase().includes(appliedFilters.hnlCode.trim().toUpperCase()));
-    }
-    if (appliedFilters.modelLine.trim()) {
+    const query = q.trim().toLowerCase();
+    if (query) {
+      const plateQuery = normalizePlate(query);
       rows = rows.filter(
         (v) =>
-          v.modelLine.toLowerCase().includes(appliedFilters.modelLine.trim().toLowerCase()) ||
-          v.brand.toLowerCase().includes(appliedFilters.modelLine.trim().toLowerCase())
+          (plateQuery && normalizePlate(v.plate).includes(plateQuery)) ||
+          String(v.hnl).toLowerCase().includes(query) ||
+          v.chassis.toLowerCase().includes(query)
       );
     }
-    if (appliedFilters.stationId) {
-      rows = rows.filter((v) => v.stationId === appliedFilters.stationId);
-    }
-    if (appliedFilters.type) {
-      rows = rows.filter((v) => v.type === appliedFilters.type);
-    }
-    if (appliedFilters.statusFilter) {
-      rows = rows.filter((v) => {
-        const effectiveStatus = v.status ?? (v.runStatus === 'repair' ? 'MAINTENANCE' : 'READY');
-        if (appliedFilters.statusFilter === 'READY') return effectiveStatus === 'READY';
-        if (appliedFilters.statusFilter === 'MAINTENANCE') return effectiveStatus === 'MAINTENANCE';
-        if (appliedFilters.statusFilter === 'STOPPED') return effectiveStatus === 'STOPPED';
-        if (appliedFilters.statusFilter === 'WORKING') return effectiveStatus === 'WORKING';
-        if (appliedFilters.statusFilter === 'INACTIVE') return effectiveStatus === 'INACTIVE';
-        return true;
-      });
-    }
-
-    if (listTab === 'due') {
-      rows = rows.filter(
-        (v) =>
-          v.inspectionDueDays <= 30 ||
-          v.gplhDueDays <= 30 ||
-          v.tndsDueDays <= 30
-      );
-    }
-    if (listTab === 'tools') rows = rows.filter((v) => v.tools.some((t) => !toolReady(t)));
-    if (listTab === 'signal_lost') {
-      rows = rows.filter((v) => {
-        const gps = gpsData[v.id];
-        return !!gps?.signal.signalLost;
-      });
-    }
+    if (stationId) rows = rows.filter((v) => v.stationId === stationId);
+    if (rescueCap) rows = rows.filter((v) => (v.rescueCapabilities ?? []).includes(rescueCap as RescueCapability));
+    if (owner) rows = rows.filter((v) => (v.ownership ?? 'Công ty') === owner);
+    if (statusFilter) rows = rows.filter((v) => statusLabelOf(v) === statusFilter);
 
     return rows;
-  }, [persona, appliedFilters, listTab, vehicles, gpsData]);
+  }, [persona, vehicles, q, stationId, rescueCap, owner, statusFilter]);
+
+  const gpsLostOf = (v: VehicleRecord) => Boolean((gpsData[v.id] as { signal?: { signalLost?: boolean } } | undefined)?.signal?.signalLost);
+  const visible = useMemo(
+    () => scoped.filter((v) => matchQuick(quick, fleetRowOf(v, gpsLostOf(v)))),
+    [scoped, quick, gpsData]
+  );
 
   const openDetail = (id: string) => navigate(`/partner/vehicles/${id}`);
 
@@ -416,7 +409,7 @@ const PartnerVehicleList: React.FC = () => {
         reason: v.imei ? 'Đang dừng' : 'Chưa gắn thiết bị',
         lat: 21.0,
         lng: 105.8,
-        address: orgName(v.stationId),
+        address: v.parkAddress || orgName(v.stationId),
       },
     };
   };
@@ -540,7 +533,7 @@ const PartnerVehicleList: React.FC = () => {
         const wb = XLSX.read(bstr, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
-        const existingPlates = new Set(vehicles.map((v) => v.plate.toLowerCase()));
+        const existingPlates = new Set(vehicles.map((v) => normalizePlate(v.plate)));
         const parsed = parseImportRows(json, existingPlates);
         setImportRows(parsed);
       } catch (err) {
@@ -613,170 +606,93 @@ const PartnerVehicleList: React.FC = () => {
         </div>
       )}
 
-      {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-black text-gray-800 uppercase tracking-tight">
-          Danh sách phương tiện
-        </h1>
-      </div>
-
-      <PartnerScopeBar persona={persona} onChange={setPersona} />
-      {/* KHỐI 1: TRA CỨU (Khớp ảnh 1.1) */}
-      <div className="border rounded-lg shadow-sm overflow-hidden bg-white">
-        <SectionHeader title="Tra cứu" icon={<Search size={16} />} />
-        <div className="p-4 sm:p-5">
-          {/* Row 1: Biển số, Mã xe, Trạm */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
-            <div className="flex items-center gap-3">
-              <label className="w-24 shrink-0 text-xs font-semibold text-gray-600">Biển số</label>
-              <input
-                type="text"
-                value={plate}
-                onChange={(e) => setPlate(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearch();
-                }}
-                placeholder="29C-123.45"
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-24 shrink-0 text-xs font-semibold text-gray-600">Mã xe</label>
-              <input
-                type="text"
-                value={hnlCode}
-                onChange={(e) => setHnlCode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearch();
-                }}
-                placeholder="21"
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-24 shrink-0 text-xs font-semibold text-gray-600">Trạm</label>
-              <select value={stationId} onChange={(e) => setStationId(e.target.value)} className={fieldClass}>
-                <option value="">Tất cả</option>
-                {STATION_OPTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Row 2: Loại xe, Tình trạng, Dòng xe */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 mt-3">
-            <div className="flex items-center gap-3">
-              <label className="w-24 shrink-0 text-xs font-semibold text-gray-600">Loại xe</label>
-              <select value={type} onChange={(e) => setType(e.target.value)} className={fieldClass}>
-                <option value="">Tất cả</option>
-                {(Object.keys(VEHICLE_TYPE_LABEL) as VehicleType[]).map((t) => (
-                  <option key={t} value={t}>
-                    {VEHICLE_TYPE_LABEL[t]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-24 shrink-0 text-xs font-semibold text-gray-600">Tình trạng</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className={fieldClass}
-              >
-                <option value="">Tất cả</option>
-                <option value="READY">Sẵn sàng</option>
-                <option value="WORKING">Đang làm đơn</option>
-                <option value="STOPPED">Tạm dừng</option>
-                <option value="MAINTENANCE">Đang sửa chữa</option>
-                <option value="INACTIVE">Ngừng hoạt động</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-24 shrink-0 text-xs font-semibold text-gray-600">Dòng xe</label>
-              <input
-                type="text"
-                value={modelLine}
-                onChange={(e) => setModelLine(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearch();
-                }}
-                placeholder="NPR 400"
-                className={fieldClass}
-              />
-            </div>
-          </div>
-
-          {/* Action Row: Left buttons (Xuất Excel, Import Excel, + Thêm xe), Right chips & Đặt lại / Tìm kiếm */}
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-3 mt-5 pt-4 border-t border-gray-100">
-            <div className="flex items-center gap-2 w-full lg:w-auto">
-              {/* Xuất / Import Excel ẩn ở T10 (DR-53) */}
-              {canEditVehicle && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/partner/vehicles/new')}
-                    className="flex items-center gap-1.5 bg-[#00A859] text-white px-3.5 py-2 rounded font-bold text-xs hover:bg-green-700 transition shadow-sm"
-                  >
-                    <Plus size={15} />
-                    <span>Thêm xe</span>
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Chips & Nút Đặt lại & Nút Tìm kiếm */}
-            <div className="flex items-center gap-1.5 flex-wrap justify-end w-full lg:w-auto">
-              <button
-                type="button"
-                onClick={() => setListTab('all')}
-                className={filterBtnClass(listTab === 'all')}
-              >
-                Tất cả
-              </button>
-              <button
-                type="button"
-                onClick={() => setListTab(listTab === 'due' ? 'all' : 'due')}
-                className={filterBtnClass(listTab === 'due')}
-              >
-                Nhắc hạn
-              </button>
-              <button
-                type="button"
-                onClick={() => setListTab(listTab === 'tools' ? 'all' : 'tools')}
-                className={filterBtnClass(listTab === 'tools')}
-              >
-                Công cụ lỗi
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="inline-flex h-[30px] w-[30px] items-center justify-center border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 rounded transition shadow-sm ml-1"
-                title="Đặt lại bộ lọc"
-              >
-                <RotateCcw size={14} />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSearch}
-                className="flex items-center gap-1.5 bg-[#00A859] text-white px-4 py-1.5 rounded font-bold text-xs hover:bg-green-700 transition shadow-sm"
-              >
-                <Search size={14} />
-                <span>Tìm kiếm</span>
-              </button>
-            </div>
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Danh sách phương tiện</h1>
+          <p className="mt-1 text-[13px] text-gray-500">
+            Phạm vi: {persona.label} · Trạng thái nhận đơn được tính theo giấy tờ, công cụ, tài xế, GPS và bảo dưỡng
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={handleExportExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50">
+            <Download size={15} />
+            Xuất Excel
+          </button>
+          {canEditVehicle && (
+            <button type="button" onClick={() => navigate('/partner/vehicles/new')} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0E8F47] px-3 py-2 text-xs font-bold text-white hover:bg-green-700">
+              <Plus size={15} />
+              Thêm xe
+            </button>
+          )}
         </div>
       </div>
 
-      {/* KHỐI 2: KẾT QUẢ TÌM KIẾM (Khớp ảnh 1.1) */}
+      <PartnerScopeBar persona={persona} onChange={setPersona} />
+
+      <section className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+            <label className="flex min-w-0 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+              Biển số / Mã xe / Số khung
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="VD: 29C12345 hoặc 21" className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold normal-case tracking-normal text-gray-800 outline-none focus:border-[#0E8F47]" />
+            </label>
+            <FilterSelect label="Trạm" value={stationId} onChange={setStationId}>
+              <option value="">Tất cả trạm</option>
+              {STATION_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </FilterSelect>
+            <FilterSelect label="Loại cứu hộ" value={rescueCap} onChange={setRescueCap}>
+              <option value="">Tất cả</option>
+              {(Object.keys(RESCUE_CAPABILITY_LABEL) as RescueCapability[]).map((key) => (
+                <option key={key} value={key}>{RESCUE_CAPABILITY_LABEL[key]}</option>
+              ))}
+            </FilterSelect>
+            <FilterSelect label="Tình trạng" value={statusFilter} onChange={setStatusFilter}>
+              <option value="">Tất cả</option>
+              {['Sẵn sàng', 'Đang làm đơn', 'Sửa chữa', 'Tạm dừng', 'Ngừng hoạt động'].map((s) => <option key={s}>{s}</option>)}
+            </FilterSelect>
+            <FilterSelect label="Sở hữu" value={owner} onChange={setOwner}>
+              <option value="">Tất cả</option>
+              {['Công ty', 'Thuê', 'Đối tác vệ tinh'].map((s) => <option key={s}>{s}</option>)}
+            </FilterSelect>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {QUICK_FILTERS.map((item) => {
+              const active = quick === item.key;
+              const value = scoped.filter((v) => matchQuick(item.key, fleetRowOf(v, gpsLostOf(v)))).length;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setQuick(item.key)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${active ? 'border-[#0E8F47] bg-emerald-50 text-[#0B6B37]' : 'border-gray-300 bg-white text-gray-600'}`}
+                >
+                  {item.label}
+                  <span className={`rounded-full px-1.5 text-[10px] ${active ? 'bg-[#0E8F47] text-white' : 'bg-gray-100 text-gray-600'}`}>{value}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setQ('');
+              setStationId('');
+              setRescueCap('');
+              setStatusFilter('');
+              setOwner('');
+              setQuick('all');
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold"
+          >
+            <RotateCcw size={14} />
+            Xóa bộ lọc
+          </button>
+        </div>
+      </section>
+
       <div className="border rounded-lg shadow-sm bg-white w-full min-w-0 overflow-hidden">
         <SectionHeader
-          title={`KẾT QUẢ TÌM KIẾM (${scoped.length})`}
+          title={`KẾT QUẢ TÌM KIẾM (${visible.length})`}
           rightNode={
             <span className="text-[11px] font-normal lowercase tracking-normal">
               Hiển thị phân trang 10 / 20 / 50 xe
@@ -802,24 +718,12 @@ const PartnerVehicleList: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {scoped.map((v, index) => {
-                // Chỉ giấy tờ bắt buộc (FL-M1-01 BR-18)
+              {visible.map((v, index) => {
                 const worstDue = Math.min(v.inspectionDueDays, v.gplhDueDays, v.tndsDueDays);
                 const brokenTools = v.tools.filter((t) => !toolReady(t));
                 const brokenCount = brokenTools.length;
                 const gps = getGpsStatusForVehicle(v);
-
-                const statusLabel =
-                  v.status === 'READY' || (!v.status && v.runStatus === 'active')
-                    ? 'Sẵn sàng'
-                    : v.status === 'MAINTENANCE' || (!v.status && v.runStatus === 'repair')
-                    ? 'Sửa chữa'
-                    : v.status === 'STOPPED'
-                    ? 'Tạm dừng'
-                    : v.status === 'WORKING'
-                    ? 'Đang làm đơn'
-                    : 'Ngừng hoạt động';
-
+                const statusLabel = statusLabelOf(v);
                 const statusBadgeStyle =
                   statusLabel === 'Sẵn sàng'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
@@ -833,131 +737,67 @@ const PartnerVehicleList: React.FC = () => {
 
                 return (
                   <tr key={v.id} className="hover:bg-gray-50/80 align-top transition-colors">
-                    {/* STT */}
-                    <td className="px-2.5 py-3 text-center border-r text-gray-500 font-medium">
-                      {index + 1}
-                    </td>
-
-                    {/* Thao tác: ⇄ Điều chuyển, ⓘ Chi tiết (Khớp ảnh 1.1) */}
+                    <td className="px-2.5 py-3 text-center border-r text-gray-500 font-medium">{index + 1}</td>
                     <td className="px-2.5 py-3 border-r">
                       <div className="flex items-center justify-center gap-2">
                         {canTransferVehicle(v) && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenTransfer(v)}
-                            className="text-emerald-600 hover:bg-emerald-50 p-1 rounded transition"
-                            title="Điều chuyển xe (DLG-02)"
-                          >
+                          <button type="button" onClick={() => handleOpenTransfer(v)} className="text-emerald-600 hover:bg-emerald-50 p-1 rounded transition" title="Điều chuyển xe">
                             <ArrowRightLeft size={16} />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => openDetail(v.id)}
-                          className="text-amber-500 hover:bg-amber-50 p-1 rounded transition"
-                          title="Xem chi tiết xe (SCR-02)"
-                        >
+                        <button type="button" onClick={() => openDetail(v.id)} className="text-amber-500 hover:bg-amber-50 p-1 rounded transition" title="Xem chi tiết xe">
                           <Info size={16} />
                         </button>
                       </div>
                     </td>
-
-                    {/* Xe: Biển số (click mở chi tiết) & Mã xe · Hãng Dòng */}
                     <td className="px-3 py-3 border-r">
-                      <button
-                        type="button"
-                        onClick={() => openDetail(v.id)}
-                        className="font-bold text-gray-900 hover:text-[#00A859] transition-colors text-xs text-left"
-                      >
+                      <button type="button" onClick={() => openDetail(v.id)} className="font-bold text-gray-900 hover:text-[#00A859] transition-colors text-xs text-left">
                         {v.plate}
                       </button>
-                      <div className="text-[11px] text-gray-400 mt-0.5">
-                        Mã {v.hnl} · {v.brand} {v.modelLine}
-                      </div>
+                      <div className="text-[11px] text-gray-400 mt-0.5">Mã {v.hnl} · {v.brand} {v.modelLine}</div>
                     </td>
-
-                    {/* Vị trí gần nhất (UI-09.6, BR-17: luôn hiển thị, Cập nhật N phút trước) */}
                     <td className="px-3 py-3 border-r">
                       <div className="font-medium text-gray-800 text-[11px] truncate max-w-[170px]" title={gps.signal.address || orgName(v.stationId)}>
                         {gps.signal.address || orgName(v.stationId)}
                       </div>
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${gps.signal.signalLost ? 'bg-red-500' : 'bg-emerald-500'}`} />
-                        <span className="text-[10px] text-gray-500">
-                          {gps.signal.signalLost ? 'Mất tín hiệu' : 'Cập nhật 5 phút trước'}
-                        </span>
+                        <span className="text-[10px] text-gray-500">{gps.signal.signalLost ? 'Mất tín hiệu' : 'Cập nhật 5 phút trước'}</span>
                       </div>
                     </td>
-
-                    {/* Trạm (UI-09.4: nếu có điều chuyển tạm thì hiện "từ {trạm gốc}, về dd/mm") */}
                     <td className="px-3 py-3 border-r font-medium text-gray-700">
                       <div>{orgName(v.stationId)}</div>
                       {v.expectedReturnAt && (
-                        <div className="text-[10px] text-amber-600 mt-0.5 font-normal">
-                          về {new Date(v.expectedReturnAt).toLocaleDateString('vi-VN')}
-                        </div>
+                        <div className="text-[10px] text-amber-600 mt-0.5 font-normal">về {new Date(v.expectedReturnAt).toLocaleDateString('vi-VN')}</div>
                       )}
                     </td>
-
-                    {/* Loại xe */}
-                    <td className="px-3 py-3 border-r text-gray-600">
-                      {VEHICLE_TYPE_LABEL[v.type]}
-                    </td>
-
-                    {/* Tải trọng */}
+                    <td className="px-3 py-3 border-r text-gray-600">{VEHICLE_TYPE_LABEL[v.type]}</td>
                     <td className="px-3 py-3 border-r text-gray-700">
                       <div className="font-semibold">{v.loadCarry || '—'}</div>
-                      {v.loadCrane && v.loadCrane !== '—' && (
-                        <div className="text-[10px] text-gray-400">Cẩu: {v.loadCrane}</div>
-                      )}
+                      {v.loadCrane && v.loadCrane !== '—' && <div className="text-[10px] text-gray-400">Cẩu: {v.loadCrane}</div>}
                     </td>
-
-                    {/* Ngày đăng ký */}
-                    <td className="px-3 py-3 border-r text-center tabular-nums text-gray-700">
-                      {v.registrationDate || '—'}
-                    </td>
-
-                    {/* Tài xế */}
-                    <td className="px-3 py-3 border-r text-gray-800 font-medium">
-                      {driverNames(v.driverIds, v.driverId)}
-                    </td>
-
-                    {/* Tình trạng: Badge click mở DLG-11 + Cảnh báo quá hạn dự kiến */}
+                    <td className="px-3 py-3 border-r text-center tabular-nums text-gray-700">{v.registrationDate || '—'}</td>
+                    <td className="px-3 py-3 border-r text-gray-800 font-medium">{driverNames(v.driverIds, v.driverId)}</td>
                     <td className="px-2.5 py-3 border-r text-center">
                       <button
                         type="button"
                         disabled={!canChangeStatusOf(v)}
                         onClick={() => canChangeStatusOf(v) && handleOpenStatusModal(v)}
                         className={`inline-flex flex-col items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition ${statusBadgeStyle}`}
-                        title={canChangeStatusOf(v) ? 'Bấm để đổi trạng thái xe (DLG-11)' : 'Chỉ xem'}
+                        title={canChangeStatusOf(v) ? 'Bấm để đổi trạng thái xe' : 'Chỉ xem'}
                       >
                         <span>{statusLabel}</span>
                       </button>
-                      {v.expectedReturnAt && (
-                        <div className="text-[9px] text-gray-400 mt-0.5">
-                          Dự kiến: {v.expectedReturnAt.split(' ')[0]}
-                        </div>
-                      )}
                     </td>
-
-                    {/* Nhắc hạn (UI-09.9, BR-18: Quá hạn màu đỏ, Sắp hết hạn màu cam, Thiếu màu xám) */}
                     <td className="px-2.5 py-3 border-r">
                       {worstDue < 0 ? (
-                        <span className="font-bold text-red-600">
-                          Quá hạn {Math.abs(worstDue)} ngày
-                        </span>
+                        <span className="font-bold text-red-600">Quá hạn {Math.abs(worstDue)} ngày</span>
                       ) : worstDue <= 30 ? (
-                        <span className="font-bold text-amber-600">
-                          Còn {worstDue} ngày
-                        </span>
+                        <span className="font-bold text-amber-600">Còn {worstDue} ngày</span>
                       ) : (
-                        <span className="text-gray-600 font-medium">
-                          Còn {worstDue} ngày
-                        </span>
+                        <span className="text-gray-600 font-medium">Còn {worstDue} ngày</span>
                       )}
                     </td>
-
-                    {/* Công cụ: OK hoặc {n} món lỗi có tooltip */}
                     <td className="px-2.5 py-3 font-bold">
                       {brokenCount > 0 ? (
                         <span
@@ -973,11 +813,9 @@ const PartnerVehicleList: React.FC = () => {
                   </tr>
                 );
               })}
-              {scoped.length === 0 && (
+              {visible.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-3 py-10 text-center text-gray-400">
-                    Không tìm thấy phương tiện nào
-                  </td>
+                  <td colSpan={12} className="px-3 py-10 text-center text-gray-400">Không tìm thấy phương tiện nào</td>
                 </tr>
               )}
             </tbody>
@@ -1409,3 +1247,12 @@ const PartnerVehicleList: React.FC = () => {
 };
 
 export default PartnerVehicleList;
+
+const FilterSelect: React.FC<{ label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }> = ({ label, value, onChange, children }) => (
+  <label className="flex min-w-0 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+    {label}
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full min-w-0 truncate rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold normal-case tracking-normal text-gray-800 outline-none focus:border-[#0E8F47]">
+      {children}
+    </select>
+  </label>
+);

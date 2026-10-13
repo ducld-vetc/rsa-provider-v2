@@ -74,6 +74,10 @@ import {
   formatVnd,
   inScope,
   nextHnl,
+  normalizePlate,
+  ACCEPTED_VEHICLE_LABEL,
+  MAINTENANCE_STATUS_LABEL,
+  RESCUE_CAPABILITY_LABEL,
   orgName,
   registerTransfer,
   registerVehicle,
@@ -86,7 +90,13 @@ import {
   type VehicleDocument,
   type VehicleDriverPairing,
   type VehiclePhoto,
+  type AcceptedVehicleKind,
+  type MaintenancePlanStatus,
+  type RescueCapability,
+  type VehicleMaintenanceHistory,
+  type VehicleMaintenanceOrder,
   type VehicleRecord,
+  type VehicleToolCondition,
   type VehicleToolItem,
   type VehicleTransferHistory,
   TOOL_CONDITION_LABEL,
@@ -104,9 +114,10 @@ const Section: React.FC<{
   icon?: React.ReactNode;
   rightNode?: React.ReactNode;
   flush?: boolean;
+  id?: string;
   children: React.ReactNode;
-}> = ({ title, number, icon, rightNode, flush, children }) => (
-  <section className="relative rounded-lg border bg-white shadow-sm mb-4">
+}> = ({ title, number, icon, rightNode, flush, id, children }) => (
+  <section id={id} className="relative mb-4 scroll-mt-40 rounded-lg border bg-white shadow-sm">
     <div className="flex items-center justify-between rounded-t-lg bg-[#00A859] px-4 py-2.5 text-sm font-bold text-white">
       <div className="flex items-center space-x-2">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px] font-black">
@@ -120,8 +131,68 @@ const Section: React.FC<{
   </section>
 );
 
+const VEHICLE_SECTION_TABS: { id: string; label: string; icon: React.FC<{ size?: number }>; hideOnCreate?: boolean }[] = [
+  { id: 'sec-info', label: 'Thông tin xe', icon: Truck },
+  { id: 'sec-cap', label: 'Năng lực cứu hộ', icon: Layers },
+  { id: 'sec-ops', label: 'Vận hành & tài xế', icon: Users },
+  { id: 'sec-maint', label: 'Bảo dưỡng', icon: Wrench },
+  { id: 'sec-photos', label: 'Hình ảnh', icon: ImageIcon },
+  { id: 'sec-docs', label: 'Giấy tờ', icon: FileText },
+  { id: 'sec-device', label: 'Thiết bị theo dõi', icon: Radio },
+  { id: 'sec-journey', label: 'Hành trình & Camera', icon: Video, hideOnCreate: true },
+  { id: 'sec-tools', label: 'Công cụ', icon: ClipboardCheck, hideOnCreate: true },
+  { id: 'sec-audit', label: 'Lịch sử', icon: History, hideOnCreate: true },
+];
+
+const VehicleSectionTabs: React.FC<{ isCreate: boolean }> = ({ isCreate }) => {
+  const tabs = VEHICLE_SECTION_TABS.filter((tab) => !(isCreate && tab.hideOnCreate));
+  const [active, setActive] = useState(tabs[0].id);
+
+  useEffect(() => {
+    const nodes = tabs
+      .map((tab) => document.getElementById(tab.id))
+      .filter((node): node is HTMLElement => Boolean(node));
+    if (!nodes.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (hit?.target.id) setActive(hit.target.id);
+      },
+      { rootMargin: '-12% 0px -65% 0px', threshold: [0.15, 0.4] },
+    );
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [isCreate]);
+
+  return (
+    <div className="flex items-center overflow-x-auto border-t bg-gray-50/50 px-4">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const on = active === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setActive(tab.id);
+              document.getElementById(tab.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            className={`flex items-center space-x-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs font-bold transition-all ${on ? 'border-vetc-green bg-green-50/50 text-vetc-green' : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
+          >
+            <Icon size={14} />
+            <span>{tab.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const SubTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h3 className="mb-3 text-[11px] font-bold uppercase text-gray-600">
+  <h3 className="mb-4 flex items-center text-[11px] font-bold uppercase tracking-wider text-gray-500">
+    <span className="mr-2 h-3 w-1 rounded-full bg-vetc-green" />
     {children}
   </h3>
 );
@@ -141,17 +212,52 @@ const fieldControlClass = (locked: boolean) =>
     locked ? 'bg-gray-50 text-gray-600 cursor-default border-gray-200' : 'bg-white text-gray-800'
   }`;
 
-const VEHICLE_SERVICES = [
-  'Xe hết pin',
-  'Kích bình ắc quy',
-  'Cẩu kéo xe tai nạn',
-  'Kéo xe ngập nước',
-  'Thay lốp dự phòng',
-  'Cẩu xe kẹt số P',
-  'Tiếp nhiên liệu',
-];
+const toIsoDate = (dmy: string) => {
+  const m = dmy.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+};
+const fromIsoDate = (iso: string) => {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+};
 
 const emptyDoc = { name: '', type: 'Đăng kiểm', number: '', issuedAt: '', expiryAt: '', fileName: '', fileUrl: '' };
+
+const capabilityFrom = (v?: VehicleRecord) => ({
+  rescueCapabilities: v?.rescueCapabilities ?? ([] as RescueCapability[]),
+  acceptedVehicles: v?.acceptedVehicles ?? ([] as AcceptedVehicleKind[]),
+  weightTkKg: v?.weightTkKg ?? '',
+  weightCpKg: v?.weightCpKg ?? '',
+  cargoTkKg: v?.cargoTkKg ?? '',
+  cargoCpKg: v?.cargoCpKg ?? '',
+  towTkKg: v?.towTkKg ?? '',
+  towCpKg: v?.towCpKg ?? '',
+  totalTkKg: v?.totalTkKg ?? '',
+  totalCpKg: v?.totalCpKg ?? '',
+  deckLengthMm: v?.deckLengthMm ?? '',
+  deckWidthMm: v?.deckWidthMm ?? '',
+  mgmtNo: v?.mgmtNo ?? '',
+  legalType: v?.legalType ?? 'Ô tô cứu hộ giao thông',
+  inspectionValidUntil: v?.inspectionValidUntil ?? '',
+  country: v?.country ?? '',
+  nienHan: v?.nienHan ?? '',
+  caiHoan: v?.caiHoan ?? /^có/i.test(v?.caiTao ?? ''),
+  caiHoanGcn: v?.caiHoanGcn ?? '',
+  kdvtYes: v?.kdvtYes ?? /^có/i.test(v?.kdvt ?? ''),
+  outerLengthMm: v?.outerLengthMm ?? '',
+  outerWidthMm: v?.outerWidthMm ?? '',
+  outerHeightMm: v?.outerHeightMm ?? '',
+  outerSize: v?.outerSize ?? '',
+  wheelFormula: v?.wheelFormula ?? '',
+  fuel: v?.fuel ?? '',
+  ownership: v?.ownership ?? 'Công ty',
+  lowClearance: v?.lowClearance ?? false,
+  maintenanceCycleKm: v?.maintenanceCycleKm ?? '',
+  maintenanceLastAt: v?.maintenanceLastAt ?? '',
+  maintenanceNextAt: v?.maintenanceNextAt ?? '',
+  maintenanceStatus: (v?.maintenanceStatus ?? 'NORMAL') as MaintenancePlanStatus,
+  odoKm: v?.odoKm ?? '',
+});
 
 /** Giấy tờ bắt buộc có nhắc hạn (FL-M1-01 BR-13, BR-18); BH vật chất tùy chọn */
 const REQUIRED_VEHICLE_DOCS = ['Đăng kiểm', 'BH TNDS', 'GPLH'];
@@ -232,11 +338,22 @@ const PartnerVehicleDetail: React.FC = () => {
     status: (isCreate ? 'READY' : (record?.status ?? (record?.runStatus === 'repair' ? 'MAINTENANCE' : 'READY'))) as VehicleRecord['status'],
     revenueMonth: isCreate ? 0 : (record?.revenueMonth ?? 48_500_000),
     services: isCreate ? [] : (record?.services ?? []),
+    ...capabilityFrom(isCreate ? undefined : record),
   });
   const [parkAddress, setParkAddress] = useState(isCreate ? '' : (record?.parkAddress ?? ''));
   const [parkCoords, setParkCoords] = useState(isCreate ? '' : (record?.parkCoords ?? ''));
   const [parkCopied, setParkCopied] = useState(false);
   const [parkMapOpen, setParkMapOpen] = useState(false);
+  const [maintOrders, setMaintOrders] = useState<VehicleMaintenanceOrder[]>(
+    isCreate ? [] : record?.maintenanceOrders ?? []
+  );
+  const [maintHistory, setMaintHistory] = useState<VehicleMaintenanceHistory[]>(
+    isCreate ? [] : record?.maintenanceHistory ?? []
+  );
+  const [maintOrderOpen, setMaintOrderOpen] = useState(false);
+  const [maintOrderNote, setMaintOrderNote] = useState('');
+  const [pairPrimaryId, setPairPrimaryId] = useState('');
+  const [pairSecondaryIds, setPairSecondaryIds] = useState<string[]>([]);
   const [driverDropOpen, setDriverDropOpen] = useState(false);
   const driverBtnRef = useRef<HTMLButtonElement>(null);
   const [driverMenuPos, setDriverMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -341,7 +458,10 @@ const PartnerVehicleDetail: React.FC = () => {
         status: 'READY',
         revenueMonth: 0,
         services: [],
+        ...capabilityFrom(),
       });
+      setMaintOrders([]);
+      setMaintHistory([]);
       setParkAddress('');
       setParkCoords('');
       setDriverDropOpen(false);
@@ -373,7 +493,10 @@ const PartnerVehicleDetail: React.FC = () => {
           status: found.status ?? (found.runStatus === 'repair' ? 'MAINTENANCE' : 'READY'),
           revenueMonth: found.revenueMonth,
           services: found.services ?? ['Xe hết pin', 'Kích bình ắc quy', 'Cẩu kéo xe tai nạn', 'Kéo xe ngập nước'],
+          ...capabilityFrom(found),
         });
+        setMaintOrders(found.maintenanceOrders ?? []);
+        setMaintHistory(found.maintenanceHistory ?? []);
         setTools(found.tools ?? toolsFor(found.type));
         setDocs(VEHICLE_DOCUMENTS[found.id] ?? []);
         setPhotos(VEHICLE_PHOTOS[found.id] ?? []);
@@ -418,6 +541,42 @@ const PartnerVehicleDetail: React.FC = () => {
     runStatus: editForm.status === 'MAINTENANCE' ? 'repair' : 'active',
     status: editForm.status,
     services: editForm.services,
+    ...capabilityFrom({
+      rescueCapabilities: editForm.rescueCapabilities,
+      acceptedVehicles: editForm.acceptedVehicles,
+      weightTkKg: editForm.weightTkKg,
+      weightCpKg: editForm.weightCpKg,
+      cargoTkKg: editForm.cargoTkKg,
+      cargoCpKg: editForm.cargoCpKg,
+      towTkKg: editForm.towTkKg,
+      towCpKg: editForm.towCpKg,
+      totalTkKg: editForm.totalTkKg,
+      totalCpKg: editForm.totalCpKg,
+      mgmtNo: editForm.mgmtNo,
+      legalType: editForm.legalType,
+      inspectionValidUntil: editForm.inspectionValidUntil,
+      country: editForm.country,
+      nienHan: editForm.nienHan,
+      caiHoan: editForm.caiHoan,
+      caiHoanGcn: editForm.caiHoanGcn,
+      kdvtYes: editForm.kdvtYes,
+      outerLengthMm: editForm.outerLengthMm,
+      outerWidthMm: editForm.outerWidthMm,
+      outerHeightMm: editForm.outerHeightMm,
+      wheelFormula: editForm.wheelFormula,
+      fuel: editForm.fuel,
+      ownership: editForm.ownership,
+      lowClearance: editForm.lowClearance,
+      deckLengthMm: editForm.deckLengthMm,
+      deckWidthMm: editForm.deckWidthMm,
+      maintenanceCycleKm: editForm.maintenanceCycleKm,
+      maintenanceLastAt: editForm.maintenanceLastAt,
+      maintenanceNextAt: editForm.maintenanceNextAt,
+      maintenanceStatus: editForm.maintenanceStatus,
+      odoKm: editForm.odoKm,
+    } as VehicleRecord),
+    maintenanceOrders: maintOrders,
+    maintenanceHistory: maintHistory,
     idleHours: 0,
     inspectionDueDays: 365,
     maintenanceDueDays: 30,
@@ -467,6 +626,13 @@ const PartnerVehicleDetail: React.FC = () => {
   const canEditVehicle = editableRole && !isInactive;
   const canTransferVehicle = canEditVehicle && persona.stationIds.length !== 1;
   const canChangeStatus = editableRole && effStatus !== 'WORKING';
+  const lockReasons = isCreate
+    ? []
+    : [
+        vehicle.inspectionDueDays < 0 ? 'Hết đăng kiểm' : '',
+        vehicle.tndsDueDays < 0 ? 'Hết BH TNDS' : '',
+        vehicle.gplhDueDays < 0 ? 'Hết giấy phép lưu hành' : '',
+      ].filter(Boolean);
   const canPair = canEditVehicle;
 
   const assignedDriverIds = useMemo(() => {
@@ -536,15 +702,15 @@ const PartnerVehicleDetail: React.FC = () => {
     if (e) e.preventDefault();
     // VAL-01..11 (FDD FL-M1-01)
     const errs: string[] = [];
-    const plateNorm = editForm.plate.trim().toUpperCase().replace(/[\s.\-]/g, '');
+    const plateNorm = normalizePlate(editForm.plate);
     if (!plateNorm) errs.push('Vui lòng nhập biển số xe');
-    else if (VEHICLES.some((v) => v.id !== vehicle.id && v.plate.toUpperCase().replace(/[\s.\-]/g, '') === plateNorm)) errs.push('Biển số đã tồn tại');
+    else if (VEHICLES.some((v) => v.id !== vehicle.id && normalizePlate(v.plate) === plateNorm)) errs.push('Biển số đã tồn tại');
     const codeNorm = editForm.hnl.trim().toUpperCase().replace(/\s+/g, '');
     if (codeNorm && VEHICLES.some((v) => v.id !== vehicle.id && String(v.hnl).toUpperCase().replace(/\s+/g, '') === codeNorm)) errs.push('Mã xe đã tồn tại');
     if (!editForm.type) errs.push('Vui lòng chọn loại xe');
-    if (!editForm.loadCarry.trim() || editForm.loadCarry.trim() === '—') errs.push('Vui lòng nhập trọng tải');
-    if (!editForm.loadCrane.trim() || editForm.loadCrane.trim() === '—') errs.push('Vui lòng nhập trọng tải cẩu kéo tối đa');
-    if (!editForm.services || editForm.services.length === 0) errs.push('Chọn ít nhất một dịch vụ');
+    if (!editForm.cargoCpKg.trim()) errs.push('Vui lòng nhập hàng chuyên chở CP');
+    if (!editForm.towCpKg.trim()) errs.push('Vui lòng nhập kéo theo CP');
+    if (!editForm.totalCpKg.trim()) errs.push('Vui lòng nhập khối lượng toàn bộ CP');
     // VAL-17: Ngày đăng ký dd/mm/yyyy, ≤ hôm nay (không bắt buộc)
     const reg = editForm.registrationDate.trim();
     if (reg) {
@@ -559,7 +725,7 @@ const PartnerVehicleDetail: React.FC = () => {
     }
 
     const patch: Partial<VehicleRecord> = {
-      plate: editForm.plate.trim(),
+      plate: plateNorm,
       hnl: editForm.hnl.trim().toUpperCase() || String(vehicle.hnl ?? ''),
       parkAddress: parkAddress.trim() || undefined,
       parkCoords: parkCoords.trim() || undefined,
@@ -578,6 +744,43 @@ const PartnerVehicleDetail: React.FC = () => {
       loadLift: editForm.loadLift.trim() || '—',
       seats: editForm.seats.trim() || '—',
       services: editForm.services,
+      rescueCapabilities: editForm.rescueCapabilities,
+      acceptedVehicles: editForm.acceptedVehicles,
+      weightTkKg: editForm.weightTkKg.trim(),
+      weightCpKg: editForm.weightCpKg.trim(),
+      cargoTkKg: editForm.cargoTkKg.trim(),
+      cargoCpKg: editForm.cargoCpKg.trim(),
+      towTkKg: editForm.towTkKg.trim(),
+      towCpKg: editForm.towCpKg.trim(),
+      totalTkKg: editForm.totalTkKg.trim(),
+      totalCpKg: editForm.totalCpKg.trim(),
+      mgmtNo: editForm.mgmtNo.trim(),
+      legalType: editForm.legalType.trim(),
+      inspectionValidUntil: editForm.inspectionValidUntil.trim(),
+      country: editForm.country.trim(),
+      nienHan: editForm.nienHan.trim(),
+      caiHoan: editForm.caiHoan,
+      caiHoanGcn: editForm.caiHoan ? editForm.caiHoanGcn.trim() : '',
+      caiTao: editForm.caiHoan ? (editForm.caiHoanGcn.trim() ? `Có · ${editForm.caiHoanGcn.trim()}` : 'Có') : 'Không',
+      kdvtYes: editForm.kdvtYes,
+      kdvt: editForm.kdvtYes ? 'Có' : 'Không',
+      outerLengthMm: editForm.outerLengthMm.trim(),
+      outerWidthMm: editForm.outerWidthMm.trim(),
+      outerHeightMm: editForm.outerHeightMm.trim(),
+      outerSize: [editForm.outerLengthMm, editForm.outerWidthMm, editForm.outerHeightMm].map((part) => part.trim()).filter(Boolean).join(' × '),
+      wheelFormula: editForm.wheelFormula.trim(),
+      fuel: editForm.fuel.trim(),
+      ownership: editForm.ownership,
+      lowClearance: editForm.lowClearance,
+      deckLengthMm: editForm.deckLengthMm.trim(),
+      deckWidthMm: editForm.deckWidthMm.trim(),
+      maintenanceCycleKm: editForm.maintenanceCycleKm.trim(),
+      maintenanceLastAt: editForm.maintenanceLastAt.trim(),
+      maintenanceNextAt: editForm.maintenanceNextAt.trim(),
+      maintenanceStatus: editForm.maintenanceStatus,
+      odoKm: editForm.odoKm.trim(),
+      maintenanceOrders: maintOrders,
+      maintenanceHistory: maintHistory,
       status: editForm.status,
       runStatus: editForm.status === 'MAINTENANCE' ? 'repair' : 'active',
       tools,
@@ -608,7 +811,7 @@ const PartnerVehicleDetail: React.FC = () => {
         actionCode: 'UPDATE_INFO',
         actionLabel: 'Cập nhật thông tin',
         oldValue: vehicle.plate,
-        newValue: editForm.plate.trim(),
+        newValue: plateNorm,
         reason: 'Chỉnh sửa hồ sơ xe',
       };
       setAuditLogs((prev) => [audit, ...prev]);
@@ -718,12 +921,15 @@ const PartnerVehicleDetail: React.FC = () => {
 
   // DLG-G01: Ghép / Đổi tài xế (Quan hệ N - N: cho phép chọn nhiều tài xế)
   const handleConfirmPair = () => {
-    if (selectedDriverIdsForPair.length === 0) return;
-    const staffList = PARTNER_STAFF.filter((s) => selectedDriverIdsForPair.includes(s.id));
+    if (!pairPrimaryId) {
+      triggerToast('Chọn tài xế chính');
+      return;
+    }
+    const secondary = pairSecondaryIds.filter((id) => id !== pairPrimaryId);
+    const newDriverIds = [pairPrimaryId, ...secondary];
+    const primaryId = pairPrimaryId;
+    const staffList = PARTNER_STAFF.filter((s) => newDriverIds.includes(s.id));
     if (staffList.length === 0) return;
-
-    const newDriverIds = selectedDriverIdsForPair;
-    const primaryId = newDriverIds[0] ?? null;
 
     updateVehicle(vehicle.id, { driverIds: newDriverIds, driverId: primaryId });
     setRecord((prev) => (prev ? { ...prev, driverIds: newDriverIds, driverId: primaryId } : prev));
@@ -758,6 +964,26 @@ const PartnerVehicleDetail: React.FC = () => {
     setPairModalOpen(false);
     setPairConfirmWarning(false);
     triggerToast(`Đã gán ${staffList.length} tài xế cho xe ${vehicle.plate}`);
+  };
+
+  const handleCreateMaintOrder = () => {
+    const content = maintOrderNote.trim();
+    if (!content) return;
+    const order: VehicleMaintenanceOrder = {
+      id: `mo-${Date.now()}`,
+      createdAt: new Date().toLocaleString('vi-VN'),
+      content,
+      status: 'OPEN',
+    };
+    const next = [order, ...maintOrders];
+    setMaintOrders(next);
+    if (!isCreate) {
+      updateVehicle(vehicle.id, { maintenanceOrders: next });
+      setRecord((prev) => (prev ? { ...prev, maintenanceOrders: next } : prev));
+    }
+    setMaintOrderNote('');
+    setMaintOrderOpen(false);
+    triggerToast('Đã tạo lệnh bảo dưỡng');
   };
 
   // DLG-G02: Kết thúc ghép tài xế
@@ -1008,128 +1234,158 @@ const PartnerVehicleDetail: React.FC = () => {
         </div>
       )}
 
-      {/* TOP BAR ACTION (Khớp ảnh 1.2 & 1.3 & SCR-04) */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <button
-            type="button"
-            onClick={() => navigate('/partner/vehicles')}
-            className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-[#00A859] transition"
-          >
-            <ArrowLeft size={13} />
-            <span>Danh sách phương tiện</span>
-          </button>
-          <h1 className="mt-0.5 text-base font-black leading-tight text-gray-900">
-            {isCreate ? 'Thêm mới xe cứu hộ' : editing ? `Cập nhật ${vehicle.plate}` : `Chi tiết ${vehicle.plate}`}
-          </h1>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {!isCreate && (
-            <button
-              type="button"
-              disabled={!canChangeStatus}
-              onClick={() => {
-                if (!canChangeStatus) return;
-                setTargetStatus(
-                  (vehicle.status ?? (vehicle.runStatus === 'repair' ? 'MAINTENANCE' : 'READY')) as
-                    | 'READY'
-                    | 'STOPPED'
-                    | 'MAINTENANCE'
-                );
-                setStatusOpen(true);
-              }}
-              title={canChangeStatus ? 'Đổi trạng thái' : undefined}
-              className={`flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm text-xs ${
-                canChangeStatus ? 'hover:border-[#00A859] hover:bg-emerald-50/40 cursor-pointer' : 'cursor-default'
-              }`}
-            >
-              <span className="text-gray-500 text-[11px] font-bold">Tình trạng:</span>
-              <span
-                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black ${
-                  vehicle.status === 'READY'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : vehicle.status === 'MAINTENANCE'
-                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : vehicle.status === 'STOPPED'
-                    ? 'bg-orange-50 text-orange-700 border-orange-200'
-                    : vehicle.status === 'WORKING'
-                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                    : 'bg-gray-100 text-gray-600 border-gray-200'
-                }`}
-              >
-                {vehicle.status === 'READY'
-                  ? 'Sẵn sàng'
-                  : vehicle.status === 'MAINTENANCE'
-                  ? 'Đang sửa chữa'
-                  : vehicle.status === 'STOPPED'
-                  ? 'Tạm dừng'
-                  : vehicle.status === 'WORKING'
-                  ? 'Đang làm đơn'
-                  : 'Ngừng hoạt động'}
-              </span>
-            </button>
-          )}
-
-          {/* Các nút hành động */}
-          {!editing ? (
-            /* Chế độ xem: SCR-02 */
-            <div className="flex items-center gap-2">
-              {canEditVehicle && (
+      <div className="sticky top-0 z-20 flex flex-col rounded-xl border border-l-4 border-l-vetc-green bg-white/95 text-left shadow-md backdrop-blur-md">
+        <div className="flex items-center justify-between gap-3 p-4">
+          <div className="flex min-w-0 items-center space-x-6">
+            <div className="flex min-w-0 flex-col">
               <button
                 type="button"
-                onClick={handleStartEdit}
-                title="Cập nhật"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#00A859] bg-white text-[#00A859] hover:bg-green-50 transition shadow-sm"
+                onClick={() => navigate('/partner/vehicles')}
+                className="mb-0.5 text-left text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-vetc-green"
               >
-                <Pencil size={15} />
+                {isCreate ? 'Thêm mới xe cứu hộ' : 'Biển số xe'}
               </button>
-              )}
-
-              {canTransferVehicle && (
-              <button
-                type="button"
-                onClick={() => setTransferOpen(true)}
-                title="Điều chuyển"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#00A859] text-white hover:bg-green-700 transition shadow-sm"
-              >
-                <ArrowRightLeft size={15} />
-              </button>
-              )}
-
-              {editableRole && !isInactive && (
+              <div className="flex items-center space-x-2">
+                <span className="truncate text-xl font-black tracking-tight text-gray-900">
+                  {isCreate ? (editForm.plate || 'Xe mới') : vehicle.plate}
+                </span>
+                {!isCreate && (
+                  <span className="rounded border border-green-100 bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-green-600">
+                    Mã {vehicle.hnl}
+                  </span>
+                )}
+              </div>
+            </div>
+            {!isCreate && (
+              <>
+                <div className="hidden h-10 w-px bg-gray-100 md:block" />
+                {lockReasons.length > 0 && (
+                  <>
+                    <div className="flex flex-col">
+                      <span className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-gray-400">Cảnh báo</span>
+                      <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-bold text-red-700">
+                        <AlertTriangle size={12} className="mr-1.5" />
+                        {lockReasons.join(' · ')}
+                      </span>
+                    </div>
+                    <div className="hidden h-10 w-px bg-gray-100 md:block" />
+                  </>
+                )}
+                <div className="flex flex-col">
+                  <span className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-gray-400">Trạng thái hiện tại</span>
+                  <button
+                    type="button"
+                    disabled={!canChangeStatus}
+                    onClick={() => {
+                      if (!canChangeStatus) return;
+                      setTargetStatus(
+                        (vehicle.status ?? (vehicle.runStatus === 'repair' ? 'MAINTENANCE' : 'READY')) as
+                          | 'READY'
+                          | 'STOPPED'
+                          | 'MAINTENANCE'
+                      );
+                      setStatusOpen(true);
+                    }}
+                    className={`flex items-center space-x-2 text-left ${canChangeStatus ? 'hover:opacity-80' : 'cursor-default'}`}
+                  >
+                    <span
+                      className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-bold ${
+                        vehicle.status === 'READY'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : vehicle.status === 'MAINTENANCE'
+                          ? 'border-amber-200 bg-amber-50 text-amber-700'
+                          : vehicle.status === 'STOPPED'
+                          ? 'border-orange-200 bg-orange-50 text-orange-700'
+                          : vehicle.status === 'WORKING'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      <span className={`mr-2 h-1.5 w-1.5 animate-pulse rounded-full ${
+                        vehicle.status === 'READY' ? 'bg-emerald-500' : vehicle.status === 'MAINTENANCE' ? 'bg-amber-500' : vehicle.status === 'WORKING' ? 'bg-blue-500' : 'bg-gray-400'
+                      }`} />
+                      {vehicle.status === 'READY'
+                        ? 'Sẵn sàng'
+                        : vehicle.status === 'MAINTENANCE'
+                        ? 'Sửa chữa'
+                        : vehicle.status === 'STOPPED'
+                        ? 'Tạm dừng'
+                        : vehicle.status === 'WORKING'
+                        ? 'Đang làm đơn'
+                        : 'Ngừng hoạt động'}
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center space-x-3">
+            {!editing ? (
+              <>
+                {canTransferVehicle && (
+                  <button
+                    type="button"
+                    onClick={() => setTransferOpen(true)}
+                    className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                  >
+                    <ArrowRightLeft size={14} />
+                    <span>Điều chuyển</span>
+                  </button>
+                )}
+                {editableRole && !isInactive && (
+                  <button
+                    type="button"
+                    onClick={() => setInactivateOpen(true)}
+                    className="flex items-center space-x-2 rounded-lg border-2 border-red-500 px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50"
+                  >
+                    <Ban size={14} />
+                    <span>Ngừng</span>
+                  </button>
+                )}
+                {!isCreate && canEditVehicle && (
+                  <button
+                    type="button"
+                    onClick={() => { setMaintOrderNote(''); setMaintOrderOpen(true); }}
+                    className="flex items-center space-x-2 rounded-lg border-2 border-vetc-green px-4 py-2 text-xs font-bold text-vetc-green hover:bg-green-50"
+                  >
+                    <Plus size={14} />
+                    <span>Tạo lệnh bảo dưỡng</span>
+                  </button>
+                )}
+                {canEditVehicle && (
+                  <button
+                    type="button"
+                    onClick={handleStartEdit}
+                    className="flex items-center space-x-2 rounded-lg bg-vetc-green px-6 py-2 text-xs font-bold text-white shadow-lg hover:bg-green-700"
+                  >
+                    <Pencil size={14} />
+                    <span>Cập nhật</span>
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
                 <button
                   type="button"
-                  onClick={() => setInactivateOpen(true)}
-                  title="Ngừng hoạt động"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300 bg-white text-red-600 hover:bg-red-50 transition shadow-sm"
+                  onClick={handleCancelEdit}
+                  className="flex items-center space-x-2 rounded-lg border-2 border-gray-400 px-6 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50"
                 >
-                  <Ban size={15} />
+                  <X size={14} />
+                  <span>Hủy</span>
                 </button>
-              )}
-            </div>
-          ) : (
-            /* Chế độ sửa hoặc thêm mới: SCR-03 / SCR-04 */
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                className="flex items-center gap-1.5 border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-lg font-bold text-xs hover:bg-gray-50 transition shadow-sm uppercase"
-              >
-                <X size={14} />
-                <span>Hủy</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveForm()}
-                className="flex items-center gap-1.5 bg-[#00A859] text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-green-700 transition shadow-sm uppercase"
-              >
-                <Check size={14} />
-                <span>{isCreate ? 'Thêm mới' : 'Lưu'}</span>
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => handleSaveForm()}
+                  className="flex items-center space-x-2 rounded-lg bg-vetc-green px-6 py-2 text-xs font-bold text-white shadow-lg hover:bg-green-700"
+                >
+                  <Check size={14} />
+                  <span>{isCreate ? 'Thêm mới' : 'Lưu thay đổi'}</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
+        <VehicleSectionTabs isCreate={isCreate} />
       </div>
 
       <PartnerScopeBar persona={persona} onChange={setPersona} />
@@ -1151,6 +1407,7 @@ const PartnerVehicleDetail: React.FC = () => {
       <Section
         title="Thông tin xe"
         number={1}
+        id="sec-info"
         icon={<Truck size={16} />}
         rightNode={
           !editing && !isCreate && canEditVehicle && (
@@ -1165,9 +1422,10 @@ const PartnerVehicleDetail: React.FC = () => {
           )
         }
       >
+        <SubTitle>Định danh</SubTitle>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <Label required={editing}>Biển số</Label>
+            <Label required={editing}>Biển số xe</Label>
             <input
               type="text"
               value={editing ? editForm.plate : vehicle.plate}
@@ -1175,14 +1433,13 @@ const PartnerVehicleDetail: React.FC = () => {
               onChange={(e) =>
                 setEditForm({
                   ...editForm,
-                  plate: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                  plate: normalizePlate(e.target.value),
                 })
               }
               className={`${fieldControlClass(!editing)} uppercase`}
               placeholder="VD 29C12345"
             />
           </div>
-          {/* CỘT 2 */}
           <div>
             <Label>Mã xe</Label>
             <input
@@ -1194,9 +1451,8 @@ const PartnerVehicleDetail: React.FC = () => {
               className={fieldControlClass(true)}
             />
           </div>
-          {/* CỘT 4 */}
           <div>
-            <Label>Hãng</Label>
+            <Label>Hãng xe</Label>
             {editing ? (
               <select
                 value={editForm.brand}
@@ -1213,9 +1469,6 @@ const PartnerVehicleDetail: React.FC = () => {
               <input type="text" value={vehicle.brand} readOnly className={fieldControlClass(true)} />
             )}
           </div>
-
-          {/* DÒNG 2 */}
-          {/* CỘT 1 */}
           <div>
             <Label>Dòng xe</Label>
             <input
@@ -1227,76 +1480,6 @@ const PartnerVehicleDetail: React.FC = () => {
               placeholder="VD: NPR 400"
             />
           </div>
-          {/* CỘT 2 */}
-          <div>
-            <Label>Năm SX</Label>
-            <input
-              type="text"
-              value={editing ? editForm.year : String(vehicle.year)}
-              readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, year: e.target.value })}
-              className={fieldControlClass(!editing)}
-              placeholder="VD: 2022"
-            />
-          </div>
-          {/* Ngày đăng ký (FL-M1-01 UI-47, VAL-17) */}
-          <div>
-            <Label>Ngày đăng ký</Label>
-            {editing ? (
-              <input
-                type="date"
-                value={(() => {
-                  const m = editForm.registrationDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-                  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
-                })()}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => {
-                  const m = e.target.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                  setEditForm({
-                    ...editForm,
-                    registrationDate: m ? `${m[3]}/${m[2]}/${m[1]}` : '',
-                  });
-                }}
-                className={fieldControlClass(false)}
-              />
-            ) : (
-              <input
-                type="text"
-                value={vehicle.registrationDate || '—'}
-                readOnly
-                className={fieldControlClass(true)}
-              />
-            )}
-          </div>
-          {/* CỘT 3 */}
-          <div>
-            <Label>Số khung</Label>
-            <input
-              type="text"
-              value={editing ? editForm.chassis : vehicle.chassis}
-              readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, chassis: e.target.value })}
-              className={fieldControlClass(!editing)}
-              placeholder="VD: JALC4B16X07001234"
-            />
-          </div>
-          {/* CỘT 4 */}
-          <div>
-            <Label>Số máy</Label>
-            <input
-              type="text"
-              value={editing ? editForm.engineNo : vehicle.engineNo}
-              readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, engineNo: e.target.value })}
-              className={fieldControlClass(!editing)}
-              placeholder="VD: 4HK1-123456"
-            />
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Thông số kỹ thuật" number={2} icon={<Wrench size={16} />}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <Label required={editing}>Loại xe</Label>
             {editing ? (
@@ -1310,119 +1493,263 @@ const PartnerVehicleDetail: React.FC = () => {
                 className={fieldControlClass(false)}
               >
                 {(Object.keys(VEHICLE_TYPE_LABEL) as VehicleRecord['type'][]).map((t) => (
-                  <option key={t} value={t}>
-                    {VEHICLE_TYPE_LABEL[t]}
-                  </option>
+                  <option key={t} value={t}>{VEHICLE_TYPE_LABEL[t]}</option>
                 ))}
               </select>
             ) : (
-              <input
-                type="text"
-                value={VEHICLE_TYPE_LABEL[vehicle.type]}
-                readOnly
-                className={fieldControlClass(true)}
-              />
+              <input type="text" value={VEHICLE_TYPE_LABEL[vehicle.type]} readOnly className={fieldControlClass(true)} />
             )}
           </div>
-          {/* CỘT 3 */}
           <div>
-            <Label required={editing}>Trọng tải</Label>
+            <Label>Năm sản xuất</Label>
             <input
               type="text"
-              value={editing ? editForm.loadCarry : vehicle.loadCarry}
+              value={editing ? editForm.year : String(vehicle.year)}
               readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, loadCarry: e.target.value })}
+              onChange={(e) => setEditForm({ ...editForm, year: e.target.value })}
               className={fieldControlClass(!editing)}
-              placeholder="VD: 5 tấn"
+              placeholder="VD: 2022"
             />
           </div>
-          {/* CỘT 4 */}
           <div>
-            <Label>Số chỗ</Label>
+            <Label>Số khung</Label>
             <input
               type="text"
-              value={editing ? editForm.seats : vehicle.seats}
+              value={editing ? editForm.chassis : vehicle.chassis}
               readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, seats: e.target.value })}
+              onChange={(e) => setEditForm({ ...editForm, chassis: e.target.value })}
               className={fieldControlClass(!editing)}
-              placeholder="VD: 3"
+              placeholder="VD: JALC4B16X07001234"
             />
           </div>
-
-          {/* DÒNG 4 */}
-          {/* CỘT 1 */}
           <div>
-            <Label required={editing}>Cẩu kéo tối đa</Label>
+            <Label>Số máy</Label>
             <input
               type="text"
-              value={editing ? editForm.loadCrane : vehicle.loadCrane}
+              value={editing ? editForm.engineNo : vehicle.engineNo}
               readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, loadCrane: e.target.value })}
+              onChange={(e) => setEditForm({ ...editForm, engineNo: e.target.value })}
               className={fieldControlClass(!editing)}
-              placeholder="VD: 8 tấn"
+              placeholder="VD: 4HK1-123456"
             />
           </div>
-          {/* CỘT 2 */}
           <div>
-            <Label>Tải trọng cẩu nâng</Label>
-            <input
-              type="text"
-              value={editing ? editForm.loadLift : vehicle.loadLift}
-              readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, loadLift: e.target.value })}
-              className={fieldControlClass(!editing)}
-              placeholder="VD: 3 tấn"
-            />
+            <Label>Sở hữu</Label>
+            <select value={editing ? editForm.ownership : (vehicle.ownership || 'Công ty')} disabled={!editing} onChange={(e) => setEditForm({ ...editForm, ownership: e.target.value as VehicleRecord['ownership'] })} className={fieldControlClass(!editing)}>
+              <option>Công ty</option>
+              <option>Thuê</option>
+              <option>Đối tác vệ tinh</option>
+            </select>
+          </div>
+          <div>
+            <Label>Nhiên liệu</Label>
+            <select value={editing ? editForm.fuel : (vehicle.fuel || '')} disabled={!editing} onChange={(e) => setEditForm({ ...editForm, fuel: e.target.value })} className={fieldControlClass(!editing)}>
+              <option value="">Chọn nhiên liệu</option>
+              <option>Diesel</option>
+              <option>Xăng</option>
+              <option>Điện</option>
+            </select>
+          </div>
+          <div>
+            <Label>Ngày đăng ký</Label>
+            {editing ? (
+              <input
+                type="date"
+                value={toIsoDate(editForm.registrationDate)}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setEditForm({ ...editForm, registrationDate: fromIsoDate(e.target.value) })}
+                className={fieldControlClass(false)}
+              />
+            ) : (
+              <input type="text" value={vehicle.registrationDate || '—'} readOnly className={fieldControlClass(true)} />
+            )}
           </div>
         </div>
-        <div className="mt-6 pt-4 border-t border-gray-100">
-          <SubTitle>Dịch vụ đáp ứng</SubTitle>
+
+        <div className="mt-6">
+          <SubTitle>Vòng đời và pháp lý</SubTitle>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <Label>Niên hạn sử dụng</Label>
+              <input type="text" value={editing ? editForm.nienHan : (vehicle.nienHan || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, nienHan: e.target.value })} className={fieldControlClass(!editing)} placeholder="2047" />
+            </div>
+            <div>
+              <Label>Cải hoán</Label>
+              <select
+                value={(editing ? editForm.caiHoan : vehicle.caiHoan) ? 'Yes' : 'No'}
+                disabled={!editing}
+                onChange={(e) => setEditForm({ ...editForm, caiHoan: e.target.value === 'Yes', caiHoanGcn: e.target.value === 'Yes' ? editForm.caiHoanGcn : '' })}
+                className={fieldControlClass(!editing)}
+              >
+                <option>No</option>
+                <option>Yes</option>
+              </select>
+            </div>
+            {(editing ? editForm.caiHoan : vehicle.caiHoan) && (
+              <div>
+                <Label>Số GCN cải hoán</Label>
+                <input type="text" value={editing ? editForm.caiHoanGcn : (vehicle.caiHoanGcn || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, caiHoanGcn: e.target.value })} className={fieldControlClass(!editing)} placeholder="Số giấy chứng nhận" />
+              </div>
+            )}
+            <div>
+              <Label>Kinh doanh vận tải</Label>
+              <select
+                value={(editing ? editForm.kdvtYes : vehicle.kdvtYes) ? 'Yes' : 'No'}
+                disabled={!editing}
+                onChange={(e) => setEditForm({ ...editForm, kdvtYes: e.target.value === 'Yes' })}
+                className={fieldControlClass(!editing)}
+              >
+                <option>No</option>
+                <option>Yes</option>
+              </select>
+            </div>
+            <div>
+              <Label>Hiệu lực đăng kiểm</Label>
+              {editing ? (
+                <input type="date" value={toIsoDate(editForm.inspectionValidUntil)} onChange={(e) => setEditForm({ ...editForm, inspectionValidUntil: fromIsoDate(e.target.value) })} className={fieldControlClass(false)} />
+              ) : (
+                <input type="text" value={vehicle.inspectionValidUntil || '—'} readOnly className={fieldControlClass(true)} />
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <SubTitle>Kích thước</SubTitle>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <Label>Kích thước bao (mm)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <input type="text" inputMode="numeric" value={editing ? editForm.outerLengthMm : (vehicle.outerLengthMm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, outerLengthMm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="Dài" />
+                <input type="text" inputMode="numeric" value={editing ? editForm.outerWidthMm : (vehicle.outerWidthMm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, outerWidthMm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="Rộng" />
+                <input type="text" inputMode="numeric" value={editing ? editForm.outerHeightMm : (vehicle.outerHeightMm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, outerHeightMm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="Cao" />
+              </div>
+            </div>
+            <div>
+              <Label>Kích thước lòng sàn (mm)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" inputMode="numeric" value={editing ? editForm.deckLengthMm : (vehicle.deckLengthMm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, deckLengthMm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="Dài" />
+                <input type="text" inputMode="numeric" value={editing ? editForm.deckWidthMm : (vehicle.deckWidthMm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, deckWidthMm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="Rộng" />
+              </div>
+            </div>
+            <div>
+              <Label>Công thức bánh xe</Label>
+              <input type="text" value={editing ? editForm.wheelFormula : (vehicle.wheelFormula || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, wheelFormula: e.target.value })} className={fieldControlClass(!editing)} placeholder="4x2" />
+            </div>
+            <div>
+              <Label>Số người cho phép chở</Label>
+              <input type="text" value={editing ? editForm.seats : vehicle.seats} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, seats: e.target.value })} className={fieldControlClass(!editing)} placeholder="3" />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <SubTitle>Khối lượng (kg)</SubTitle>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {([
+              ['Khối lượng bản thân', 'weightTkKg', 'weightCpKg'],
+              ['Hàng chuyên chở', 'cargoTkKg', 'cargoCpKg'],
+              ['Kéo theo', 'towTkKg', 'towCpKg'],
+              ['Toàn bộ', 'totalTkKg', 'totalCpKg'],
+            ] as const).map(([label, tkKey, cpKey]) => (
+              <div key={label}>
+                <Label>{label}</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" inputMode="numeric" value={editing ? editForm[tkKey] : (vehicle[tkKey] || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, [tkKey]: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="TK" />
+                  <input type="text" inputMode="numeric" value={editing ? editForm[cpKey] : (vehicle[cpKey] || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, [cpKey]: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="CP" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Năng lực cứu hộ" number={2} id="sec-cap" icon={<Truck size={16} />}>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+        <SubTitle>Năng lực cứu hộ</SubTitle>
+        {editing ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {(Object.keys(RESCUE_CAPABILITY_LABEL) as RescueCapability[]).map((key) => {
+              const checked = editForm.rescueCapabilities.includes(key);
+              return (
+                <label key={key} className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm cursor-pointer ${checked ? 'border-[#00A859] bg-emerald-50/40' : 'border-gray-200'}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      const cur = editForm.rescueCapabilities;
+                      setEditForm({
+                        ...editForm,
+                        rescueCapabilities: e.target.checked ? [...cur, key] : cur.filter((item) => item !== key),
+                      });
+                    }}
+                    className="h-4 w-4 accent-[#00A859]"
+                  />
+                  <span>{RESCUE_CAPABILITY_LABEL[key]}</span>
+                </label>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {(vehicle.rescueCapabilities ?? []).length === 0 ? (
+              <span className="text-xs text-gray-400">Chưa khai báo</span>
+            ) : (
+              vehicle.rescueCapabilities!.map((key) => (
+                <span key={key} className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  {RESCUE_CAPABILITY_LABEL[key]}
+                </span>
+              ))
+            )}
+          </div>
+        )}
+
+        </div>
+        <div>
+          <SubTitle>Nhận xe</SubTitle>
           {editing ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {VEHICLE_SERVICES.map((srv) => {
-                const checked = editForm.services?.includes(srv);
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(Object.keys(ACCEPTED_VEHICLE_LABEL) as AcceptedVehicleKind[]).map((key) => {
+                const checked = editForm.acceptedVehicles.includes(key);
                 return (
-                  <label
-                    key={srv}
-                    className={`flex items-center gap-3 rounded-lg border bg-white px-3 py-2.5 text-sm cursor-pointer transition ${
-                      checked ? 'border-[#00A859] bg-emerald-50/40' : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
+                  <label key={key} className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm cursor-pointer ${checked ? 'border-[#00A859] bg-emerald-50/40' : 'border-gray-200'}`}>
                     <input
                       type="checkbox"
-                      checked={!!checked}
+                      checked={checked}
                       onChange={(e) => {
-                        const cur = editForm.services ?? [];
-                        if (e.target.checked) setEditForm({ ...editForm, services: [...cur, srv] });
-                        else setEditForm({ ...editForm, services: cur.filter((s) => s !== srv) });
+                        const cur = editForm.acceptedVehicles;
+                        setEditForm({
+                          ...editForm,
+                          acceptedVehicles: e.target.checked ? [...cur, key] : cur.filter((item) => item !== key),
+                        });
                       }}
-                      className="h-4 w-4 shrink-0 rounded border-gray-300 accent-[#00A859]"
+                      className="h-4 w-4 accent-[#00A859]"
                     />
-                    <span className="text-gray-800">{srv}</span>
+                    <span>{ACCEPTED_VEHICLE_LABEL[key]}</span>
                   </label>
                 );
               })}
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {vehicle.services && vehicle.services.length > 0 ? (
-                vehicle.services.map((srv) => (
-                  <span
-                    key={srv}
-                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
-                  >
-                    {srv}
+              {(vehicle.acceptedVehicles ?? []).length === 0 ? (
+                <span className="text-xs text-gray-400">Chưa khai báo</span>
+              ) : (
+                vehicle.acceptedVehicles!.map((key) => (
+                  <span key={key} className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    {ACCEPTED_VEHICLE_LABEL[key]}
                   </span>
                 ))
-              ) : (
-                <span className="text-xs text-red-500 font-medium">Chưa khai báo dịch vụ</span>
               )}
             </div>
           )}
         </div>
+        </div>
+
       </Section>
 
-      <Section title="Trạm quản lý" number={3} icon={<Users size={16} />}>
+      <Section title="Vận hành và tài xế" number={3} id="sec-ops" icon={<Users size={16} />}>
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div>
             <Label required={isCreate}>Trạm</Label>
@@ -1432,9 +1759,10 @@ const PartnerVehicleDetail: React.FC = () => {
                 onChange={(e) => {
                   const stationId = e.target.value;
                   const allowed = new Set(driversAtStation(stationId).map((d) => d.id));
-                  const driverIds = editForm.driverIds.filter((driverId) => allowed.has(driverId));
+                  const driverId = allowed.has(editForm.driverId) ? editForm.driverId : '';
+                  const secondary = editForm.driverIds.filter((id) => allowed.has(id) && id !== driverId);
                   setDriverDropOpen(false);
-                  setEditForm({ ...editForm, stationId, driverIds, driverId: driverIds[0] ?? '' });
+                  setEditForm({ ...editForm, stationId, driverId, driverIds: driverId ? [driverId, ...secondary] : secondary });
                 }}
                 className={`${fieldControlClass(false)} h-[34px]`}
               >
@@ -1465,8 +1793,56 @@ const PartnerVehicleDetail: React.FC = () => {
               </div>
             )}
           </div>
-          <div className="lg:col-span-3">
-            <Label>Tài xế chịu trách nhiệm</Label>
+          <div className="lg:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div>
+              <Label>Tài xế chính</Label>
+              {editing && isCreate ? (
+                <select
+                  value={editForm.driverId}
+                  onChange={(e) => {
+                    const driverId = e.target.value;
+                    const secondary = editForm.driverIds.filter((id) => id && id !== driverId && id !== editForm.driverId);
+                    setEditForm({
+                      ...editForm,
+                      driverId,
+                      driverIds: driverId ? [driverId, ...secondary] : secondary,
+                    });
+                  }}
+                  className={`${fieldControlClass(false)} h-[34px]`}
+                >
+                  <option value="">Chọn tài xế chính</option>
+                  {driversAtStation(editForm.stationId).map((d) => (
+                    <option key={d.id} value={d.id}>{d.fullname}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="flex items-center gap-2 min-h-[34px]">
+                  {vehicle.driverId ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      {PARTNER_STAFF.find((s) => s.id === vehicle.driverId)?.fullname}
+                    </span>
+                  ) : (
+                    <span className="text-xs italic text-gray-400">Chưa gán</span>
+                  )}
+                  {!editing && canPair && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPairPrimaryId(vehicle.driverId ?? '');
+                        setPairSecondaryIds(assignedDriverIds.filter((id) => id !== vehicle.driverId));
+                        setPairModalOpen(true);
+                      }}
+                      className="inline-flex h-[30px] shrink-0 items-center gap-1 rounded-md border border-[#00A859] bg-white px-2.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
+                    >
+                      <Pencil size={12} />
+                      Cập nhật
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="lg:col-span-2">
+            <Label>Tài xế phụ</Label>
 
             {editing && isCreate ? (
               <div>
@@ -1487,10 +1863,10 @@ const PartnerVehicleDetail: React.FC = () => {
                 >
                   <span className="flex min-w-0 flex-wrap gap-1">
                     {editForm.driverIds.length === 0 ? (
-                      <span className="text-gray-400">Chọn tài xế</span>
+                      <span className="text-gray-400">Chọn tài xế phụ</span>
                     ) : (
                       driversAtStation(editForm.stationId)
-                        .filter((d) => editForm.driverIds.includes(d.id))
+                        .filter((d) => editForm.driverIds.includes(d.id) && d.id !== editForm.driverId)
                         .map((d) => (
                           <span
                             key={d.id}
@@ -1518,7 +1894,9 @@ const PartnerVehicleDetail: React.FC = () => {
                       {driversAtStation(editForm.stationId).length === 0 ? (
                         <p className="px-2 py-2 text-xs italic text-gray-400">Trạm này chưa có tài xế nào</p>
                       ) : (
-                        driversAtStation(editForm.stationId).map((d) => {
+                        driversAtStation(editForm.stationId)
+                          .filter((d) => d.id !== editForm.driverId)
+                          .map((d) => {
                           const checked = editForm.driverIds.includes(d.id);
                           return (
                             <label key={d.id} className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-50">
@@ -1527,10 +1905,12 @@ const PartnerVehicleDetail: React.FC = () => {
                                   type="checkbox"
                                   checked={checked}
                                   onChange={(e) => {
-                                    const nextIds = e.target.checked
-                                      ? [...editForm.driverIds, d.id]
-                                      : editForm.driverIds.filter((driverId) => driverId !== d.id);
-                                    setEditForm({ ...editForm, driverIds: nextIds, driverId: nextIds[0] ?? '' });
+                                    const without = editForm.driverIds.filter((driverId) => driverId !== d.id);
+                                    const nextIds = e.target.checked ? [...without, d.id] : without;
+                                    const withPrimary = editForm.driverId && !nextIds.includes(editForm.driverId)
+                                      ? [editForm.driverId, ...nextIds]
+                                      : nextIds;
+                                    setEditForm({ ...editForm, driverIds: withPrimary, driverId: editForm.driverId });
                                   }}
                                   className="h-4 w-4 shrink-0 rounded accent-[#00A859]"
                                 />
@@ -1549,61 +1929,134 @@ const PartnerVehicleDetail: React.FC = () => {
                 )}
               </div>
             ) : (
-              /* Khi xem chi tiết hoặc khi cập nhật (editing && !isCreate): Read-only danh sách tài xế */
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1 space-y-1">
-                  {currentDrivers.length === 0 ? (
-                    <p className="text-xs italic text-gray-400">Chưa gán tài xế nào</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {currentDrivers.map((d) => (
-                        <span
-                          key={d.id}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
-                        >
-                          <span>{d.fullname}</span>
-                          <span className="font-medium tabular-nums text-emerald-700/80">{d.phone}</span>
-                          {!editing && canPair && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSingleDriver(d.id)}
-                              className="text-emerald-700/70 hover:text-red-500"
-                              title={`Hủy ghép tài xế ${d.fullname}`}
-                            >
-                              <X size={12} />
-                            </button>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {editing && !isCreate && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50/80 px-2.5 py-1 rounded border border-amber-200/60 font-medium">
-                      <Lock size={12} className="shrink-0 text-amber-600" />
-                      <span>Không cho phép sửa tài xế chịu trách nhiệm khi cập nhật xe.</span>
-                    </div>
-                  )}
-                </div>
-                {!editing && canPair && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedDriverIdsForPair([...assignedDriverIds]);
-                      setPairModalOpen(true);
-                    }}
-                    className="inline-flex h-[30px] shrink-0 items-center gap-1 rounded-md border border-[#00A859] bg-white px-2.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
-                  >
-                    <Pencil size={12} />
-                    Cập nhật
-                  </button>
+              <div className="space-y-1">
+                {currentDrivers.filter((d) => d.id !== vehicle.driverId).length === 0 ? (
+                  <p className="text-xs italic text-gray-400">Chưa gán tài xế phụ</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {currentDrivers.filter((d) => d.id !== vehicle.driverId).map((d) => (
+                      <span
+                        key={d.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                      >
+                        <span>{d.fullname}</span>
+                        <span className="font-medium tabular-nums text-emerald-700/80">{d.phone}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {editing && !isCreate && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50/80 px-2.5 py-1 rounded border border-amber-200/60 font-medium">
+                    <Lock size={12} className="shrink-0 text-amber-600" />
+                    <span>Đổi tài xế chính/phụ bằng nút Cập nhật khi xem xe.</span>
+                  </div>
                 )}
               </div>
             )}
+            </div>
           </div>
         </div>
       </Section>
 
-      <Section title="Hình ảnh" number={4} icon={<ImageIcon size={16} />}>
+      <Section title="Bảo dưỡng" number={4} id="sec-maint" icon={<Wrench size={16} />}>
+        <SubTitle>Kế hoạch bảo dưỡng</SubTitle>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div>
+            <Label>Chu kỳ (km)</Label>
+            <input type="text" inputMode="numeric" value={editing ? editForm.maintenanceCycleKm : (vehicle.maintenanceCycleKm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, maintenanceCycleKm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="5000" />
+          </div>
+          <div>
+            <Label>Lần gần nhất</Label>
+            {editing ? (
+              <input type="date" value={editForm.maintenanceLastAt} onChange={(e) => setEditForm({ ...editForm, maintenanceLastAt: e.target.value })} className={fieldControlClass(false)} />
+            ) : (
+              <input type="text" readOnly value={vehicle.maintenanceLastAt || '—'} className={fieldControlClass(true)} />
+            )}
+          </div>
+          <div>
+            <Label>Lần tiếp theo</Label>
+            {editing ? (
+              <input type="date" value={editForm.maintenanceNextAt} onChange={(e) => setEditForm({ ...editForm, maintenanceNextAt: e.target.value })} className={fieldControlClass(false)} />
+            ) : (
+              <input type="text" readOnly value={vehicle.maintenanceNextAt || '—'} className={fieldControlClass(true)} />
+            )}
+          </div>
+          <div>
+            <Label>Trạng thái</Label>
+            {editing ? (
+              <select value={editForm.maintenanceStatus} onChange={(e) => setEditForm({ ...editForm, maintenanceStatus: e.target.value as MaintenancePlanStatus })} className={fieldControlClass(false)}>
+                {(Object.keys(MAINTENANCE_STATUS_LABEL) as MaintenancePlanStatus[]).map((key) => (
+                  <option key={key} value={key}>{MAINTENANCE_STATUS_LABEL[key]}</option>
+                ))}
+              </select>
+            ) : (
+              <input type="text" readOnly value={MAINTENANCE_STATUS_LABEL[vehicle.maintenanceStatus ?? 'NORMAL']} className={fieldControlClass(true)} />
+            )}
+          </div>
+          <div>
+            <Label>ODO (km)</Label>
+            <input type="text" inputMode="numeric" value={editing ? editForm.odoKm : (vehicle.odoKm || '—')} readOnly={!editing} onChange={(e) => setEditForm({ ...editForm, odoKm: e.target.value.replace(/[^\d]/g, '') })} className={fieldControlClass(!editing)} placeholder="14280" />
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <SubTitle>Lệnh bảo dưỡng</SubTitle>
+        </div>
+        {maintOrders.length === 0 ? (
+          <p className="text-xs italic text-gray-400">Chưa có lệnh bảo dưỡng</p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-3 py-2 text-left font-bold">Thời điểm</th>
+                  <th className="px-3 py-2 text-left font-bold">Nội dung</th>
+                  <th className="px-3 py-2 text-left font-bold">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                {maintOrders.map((order) => (
+                  <tr key={order.id} className="border-t border-gray-100">
+                    <td className="px-3 py-2 tabular-nums">{order.createdAt}</td>
+                    <td className="px-3 py-2">{order.content}</td>
+                    <td className="px-3 py-2">{order.status === 'OPEN' ? 'Mới' : 'Hoàn thành'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="mt-5">
+          <SubTitle>Lịch sử bảo dưỡng</SubTitle>
+          {maintHistory.length === 0 ? (
+            <p className="text-xs italic text-gray-400">Chưa có lịch sử bảo dưỡng</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-bold">Ngày</th>
+                    <th className="px-3 py-2 text-left font-bold">ODO</th>
+                    <th className="px-3 py-2 text-left font-bold">Nội dung</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {maintHistory.map((row) => (
+                    <tr key={row.id} className="border-t border-gray-100">
+                      <td className="px-3 py-2 tabular-nums">{row.at}</td>
+                      <td className="px-3 py-2 tabular-nums">{row.odoKm}</td>
+                      <td className="px-3 py-2">{row.content}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      <Section title="Hình ảnh" number={5} id="sec-photos" icon={<ImageIcon size={16} />}>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {(['Góc trước', 'Góc sau', 'Bên trái', 'Bên phải'] as const).map((slotLabel) => {
               const photo = photos.find((p) => p.label === slotLabel);
@@ -1681,7 +2134,8 @@ const PartnerVehicleDetail: React.FC = () => {
 
       <Section
         title="Giấy tờ"
-        number={5}
+        number={6}
+        id="sec-docs"
         icon={<FileText size={16} />}
       >
         <div className="space-y-3">
@@ -1809,7 +2263,7 @@ const PartnerVehicleDetail: React.FC = () => {
         </div>
       </Section>
 
-      <Section title="Thiết bị theo dõi" number={6} icon={<Radio size={16} />}>
+      <Section title="Thiết bị theo dõi" number={7} id="sec-device" icon={<Radio size={16} />}>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <Label>Thiết bị GPS (IMEI)</Label>
@@ -1887,7 +2341,8 @@ const PartnerVehicleDetail: React.FC = () => {
       {!isCreate && (
         <Section
           title="Lịch sử hành trình & Camera trước xe"
-          number={7}
+          number={8}
+          id="sec-journey"
           icon={<MapPin size={16} />}
           rightNode={(
             <div className="flex items-center gap-1.5 bg-white/20 p-1 rounded-lg text-xs">
@@ -2214,7 +2669,7 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* KHỐI 3: CÔNG CỤ THEO XE VÀ TÌNH TRẠNG (Khớp ảnh 1.2 & 1.3 - Ẩn ở SCR-04 theo FDD) */}
       {!isCreate && (
-        <Section title="Công cụ theo xe và tình trạng" number={8} icon={<Wrench size={16} />}>
+        <Section title="Công cụ theo xe và tình trạng" number={9} id="sec-tools" icon={<Wrench size={16} />}>
           {/* Badges đếm */}
           <div className="mb-3 flex items-center gap-2">
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
@@ -2303,7 +2758,7 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* KHỐI 4: LỊCH SỬ THAY ĐỔI & NHẬT KÝ HOẠT ĐỘNG (B-HISTORY - Khớp FDD FL-M1-01) */}
       {!isCreate && (
-        <Section title="Lịch sử thay đổi & Nhật ký hoạt động (Audit Log)" number={9} icon={<History size={16} />}>
+        <Section title="Lịch sử thay đổi & Nhật ký hoạt động (Audit Log)" number={10} id="sec-audit" icon={<History size={16} />}>
           <div className="mb-3 flex flex-wrap gap-1.5">
             {AUDIT_FILTERS.map((ft) => (
               <button
@@ -2784,7 +3239,7 @@ const PartnerVehicleDetail: React.FC = () => {
       {/* DLG-G01: GHÉP TÀI XẾ (QUAN HỆ N - N: CHỌN ĐƯỢC NHIỀU TÀI XẾ, BỎ TÍCH HẾT ĐƯỢC - UI-G14) */}
       <PartnerModal
         open={pairModalOpen}
-        title={`Ghép tài xế chịu trách nhiệm — ${vehicle.plate}`}
+        title={`Gán tài xế chính / phụ — ${vehicle.plate}`}
         icon={<UserCheck size={20} />}
         onClose={() => setPairModalOpen(false)}
         footer={(
@@ -2798,14 +3253,11 @@ const PartnerVehicleDetail: React.FC = () => {
             </button>
             <button
               type="button"
-              disabled={
-                // Nút Lưu bật khi có thay đổi danh sách tài xế (UI-G14)
-                JSON.stringify([...selectedDriverIdsForPair].sort()) === JSON.stringify([...assignedDriverIds].sort())
-              }
+              disabled={!pairPrimaryId}
               onClick={handleConfirmPair}
               className={`${partnerBtnBrand} disabled:opacity-50`}
             >
-              Lưu thay đổi ({selectedDriverIdsForPair.length} tài xế)
+              Lưu phân công
             </button>
           </>
         )}
@@ -2823,148 +3275,49 @@ const PartnerVehicleDetail: React.FC = () => {
               </span>
             </div>
           </div>
-
-          {/* Ghi chú quan hệ N - N */}
-          <div className="rounded-lg bg-blue-50 border border-blue-200 p-2.5 text-blue-900 flex items-start gap-2">
-            <Info size={15} className="text-blue-600 shrink-0 mt-0.5" />
-            <span className="leading-relaxed">
-              <strong>Quan hệ N:N:</strong> Một phương tiện có thể được phân công cho nhiều tài xế phụ trách (theo ca, kíp hoặc dự phòng), và một tài xế cũng có thể được phân công cho nhiều xe. Có thể bỏ chọn tất cả để hủy ghép toàn bộ (UI-G14).
-            </span>
-          </div>
-
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className={partnerLabelClass}>
-                Chọn các tài xế thuộc {orgName(vehicle.stationId)}
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDriverIdsForPair(driversAtStation(vehicle.stationId).map((d) => d.id))}
-                  className="text-[11px] text-[#00A859] font-bold hover:underline"
-                >
-                  Chọn tất cả
-                </button>
-                <span className="text-gray-300">|</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDriverIdsForPair([])}
-                  className="text-[11px] text-gray-500 font-bold hover:underline"
-                >
-                  Bỏ chọn tất cả
-                </button>
-              </div>
-            </div>
-
-            {/* Danh sách tài xế dạng Checkbox List + Tài xế không đủ điều kiện (UI-G11, UI-G12) */}
-            <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 max-h-56 overflow-y-auto">
-              {driversAtStation(vehicle.stationId).length === 0 ? (
-                <div className="p-4 text-center text-gray-400 italic">Trạm này chưa có tài xế nào</div>
+            <label className={partnerLabelClass}>Tài xế chính</label>
+            <select
+              value={pairPrimaryId}
+              onChange={(e) => {
+                const next = e.target.value;
+                setPairPrimaryId(next);
+                setPairSecondaryIds((prev) => prev.filter((id) => id !== next));
+              }}
+              className={inputClass}
+            >
+              <option value="">Chọn tài xế chính</option>
+              {driversAtStation(vehicle.stationId).map((d) => (
+                <option key={d.id} value={d.id}>{d.fullname}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={partnerLabelClass}>Tài xế phụ</label>
+            <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 max-h-52 overflow-y-auto">
+              {driversAtStation(vehicle.stationId).filter((d) => d.id !== pairPrimaryId).length === 0 ? (
+                <div className="p-3 text-gray-400 italic">Chọn tài xế chính trước, hoặc trạm chưa có tài xế khác</div>
               ) : (
-                driversAtStation(vehicle.stationId).map((d) => {
-                  const isSelected = selectedDriverIdsForPair.includes(d.id);
-                  const otherVehicles = VEHICLES.filter(
-                    (v) => v.id !== vehicle.id && ((v.driverIds?.includes(d.id)) || v.driverId === d.id)
-                  );
-                  // Kiểm tra tài xế đủ điều kiện: ví dụ tài xế bị khóa bằng lái hoặc không đủ bằng lái xe cẩu
-                  const isEligible = !d.fullname.includes('(Bị khóa)');
-
-                  if (!isEligible) {
-                    return (
-                      <div
-                        key={d.id}
-                        className="flex items-center justify-between p-2.5 bg-gray-50/70 text-gray-400 cursor-not-allowed opacity-60"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <input type="checkbox" disabled className="rounded h-4 w-4" />
-                          <div>
-                            <div className="font-semibold line-through">{d.fullname} ({d.phone})</div>
-                            <div className="text-[10px] text-red-500 font-medium">Không đủ điều kiện: Bằng lái đang bị tạm giữ/hết hạn</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <label
-                      key={d.id}
-                      className={`flex items-center justify-between p-2.5 transition cursor-pointer ${
-                        isSelected ? 'bg-emerald-50/70' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedDriverIdsForPair((prev) => [...prev, d.id]);
-                            } else {
-                              setSelectedDriverIdsForPair((prev) => prev.filter((id) => id !== d.id));
-                            }
-                          }}
-                          className="accent-[#00A859] rounded h-4 w-4"
-                        />
-                        <div className="min-w-0">
-                          <div className="font-bold text-gray-800 flex items-center gap-2">
-                            <span>{d.fullname}</span>
-                            <span className="text-[11px] tabular-nums text-gray-500">({d.phone})</span>
-                          </div>
-                          <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
-                            <span>Bằng {d.licenseType}</span>
-                            {d.craneCert && (
-                              <span className="text-emerald-700 bg-emerald-100 px-1 rounded text-[10px]">
-                                Có CC cẩu
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        {otherVehicles.length > 0 ? (
-                          <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
-                            Ghép: {otherVehicles.map((v) => v.plate).join(', ')}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                            Rảnh
-                          </span>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })
+                driversAtStation(vehicle.stationId).filter((d) => d.id !== pairPrimaryId).map((d) => (
+                  <label key={d.id} className="flex items-center justify-between gap-2 p-2.5 cursor-pointer hover:bg-gray-50">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={pairSecondaryIds.includes(d.id)}
+                        onChange={(e) => {
+                          setPairSecondaryIds((prev) => e.target.checked ? [...prev, d.id] : prev.filter((id) => id !== d.id));
+                        }}
+                        className="h-4 w-4 accent-[#00A859]"
+                      />
+                      <span className="font-semibold text-gray-800">{d.fullname}</span>
+                      <span className="tabular-nums text-gray-500">{d.phone}</span>
+                    </span>
+                    <span className="text-[10px] text-gray-400">Bằng {d.licenseType}</span>
+                  </label>
+                ))
               )}
             </div>
           </div>
-
-          {/* Dòng lý do khi có gỡ tài xế (UI-G11) */}
-          {assignedDriverIds.some((id) => !selectedDriverIdsForPair.includes(id)) && (
-            <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-              <label className={partnerLabelClass}>
-                Lý do hủy ghép {assignedDriverIds.filter((id) => !selectedDriverIdsForPair.includes(id)).length} tài xế:
-              </label>
-              <input
-                type="text"
-                placeholder="VD: Điều chỉnh phân công phụ trách xe theo kế hoạch..."
-                className={`${inputClass} mt-1`}
-              />
-            </div>
-          )}
-
-          {selectedDriverIdsForPair.length > 0 && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 space-y-1">
-              <div className="font-bold">Đã chọn ({selectedDriverIdsForPair.length} tài xế):</div>
-              <div className="text-xs">
-                {selectedDriverIdsForPair
-                  .map((id) => PARTNER_STAFF.find((s) => s.id === id)?.fullname)
-                  .filter(Boolean)
-                  .join(', ')}
-              </div>
-            </div>
-          )}
         </div>
       </PartnerModal>
 
@@ -3497,6 +3850,32 @@ const PartnerVehicleDetail: React.FC = () => {
             )}
           </div>
         )}
+      </PartnerModal>
+
+      <PartnerModal
+        open={maintOrderOpen}
+        title={`Tạo lệnh bảo dưỡng — ${vehicle.plate}`}
+        icon={<Wrench size={20} />}
+        onClose={() => setMaintOrderOpen(false)}
+        footer={(
+          <>
+            <button type="button" onClick={() => setMaintOrderOpen(false)} className={partnerBtnNeutral}>Hủy</button>
+            <button type="button" disabled={!maintOrderNote.trim()} onClick={handleCreateMaintOrder} className={`${partnerBtnBrand} disabled:opacity-50`}>
+              Tạo lệnh
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-2 text-xs">
+          <label className={partnerLabelClass}>Nội dung lệnh</label>
+          <textarea
+            rows={3}
+            value={maintOrderNote}
+            onChange={(e) => setMaintOrderNote(e.target.value)}
+            placeholder="VD: Bảo dưỡng cấp 1 theo chu kỳ 5.000 km"
+            className={`${inputClass} resize-none`}
+          />
+        </div>
       </PartnerModal>
 
       <MapSelectionModal

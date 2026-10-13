@@ -84,8 +84,8 @@ const PartnerReports: React.FC = () => {
           <Table
             headers={['Lệnh', 'Xe', 'Cách mang về', 'Trạm nhận']}
             rows={[
-              ['RS-2408-01', '29C-123.45', 'Lái xe cứu hộ', orgName(vehicles[0]?.stationId ?? 'tt-hm')],
-              ['RS-2408-02', '29C-678.90', 'Điều phối VETC', orgName(vehicles[0]?.stationId ?? 'tt-hm')],
+              ['RS-2408-01', '29C12345', 'Lái xe cứu hộ', orgName(vehicles[0]?.stationId ?? 'tt-hm')],
+              ['RS-2408-02', '29C67890', 'Điều phối VETC', orgName(vehicles[0]?.stationId ?? 'tt-hm')],
             ]}
           />
         </div>

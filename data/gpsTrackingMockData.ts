@@ -108,7 +108,7 @@ export const UNMATCHED_REASON_LABELS: Record<UnmatchedReasonCode, string> = {
 export let INITIAL_VEHICLE_GPS_DATA: Record<string, VehicleGpsStatus> = {
   v1: {
     vehicleId: 'v1',
-    plate: '29C-123.45',
+    plate: '29C12345',
     plateNormalized: '29C12345',
     stationId: 'tt-hm',
     stationName: 'Trạm Hoàng Mai',
@@ -133,7 +133,7 @@ export let INITIAL_VEHICLE_GPS_DATA: Record<string, VehicleGpsStatus> = {
   },
   v2: {
     vehicleId: 'v2',
-    plate: '29C-678.90',
+    plate: '29C67890',
     plateNormalized: '29C67890',
     stationId: 'tt-hm',
     stationName: 'Trạm Hoàng Mai',
@@ -158,7 +158,7 @@ export let INITIAL_VEHICLE_GPS_DATA: Record<string, VehicleGpsStatus> = {
   },
   v3: {
     vehicleId: 'v3',
-    plate: '30F-111.22',
+    plate: '30F11122',
     plateNormalized: '30F11122',
     stationId: 'tt-hd',
     stationName: 'Trạm Hà Đông',
@@ -183,7 +183,7 @@ export let INITIAL_VEHICLE_GPS_DATA: Record<string, VehicleGpsStatus> = {
   },
   v4: {
     vehicleId: 'v4',
-    plate: '15B-333.44',
+    plate: '15B33344',
     plateNormalized: '15B33344',
     stationId: 'tt-hp',
     stationName: 'Trạm Hải Phòng',
@@ -211,7 +211,7 @@ export let INITIAL_VEHICLE_GPS_DATA: Record<string, VehicleGpsStatus> = {
   },
   v5: {
     vehicleId: 'v5',
-    plate: '51C-555.66',
+    plate: '51C55566',
     plateNormalized: '51C55566',
     stationId: 'tt-bt',
     stationName: 'Trạm Bình Thạnh',
@@ -245,7 +245,7 @@ export let INITIAL_GPS_HISTORY: Record<string, { periods: GpsMappingPeriod[]; au
       {
         id: 'p-101-b',
         vehicleId: 'v1',
-        plate: '29C-123.45',
+        plate: '29C12345',
         imei: '8612345678901',
         validFrom: '01/09/2026 08:00',
         validTo: null,
@@ -259,7 +259,7 @@ export let INITIAL_GPS_HISTORY: Record<string, { periods: GpsMappingPeriod[]; au
       {
         id: 'p-101-a',
         vehicleId: 'v1',
-        plate: '29C-123.45',
+        plate: '29C12345',
         imei: '8612000954000',
         validFrom: '15/06/2026 10:00',
         validTo: '01/09/2026 08:00',
@@ -267,7 +267,7 @@ export let INITIAL_GPS_HISTORY: Record<string, { periods: GpsMappingPeriod[]; au
         sourceLabel: 'Tự khớp',
         status: 'ACTIVE',
         createdByName: 'Hệ thống (SYSTEM)',
-        reason: 'Tự khớp theo biển số 29C-123.45',
+        reason: 'Tự khớp theo biển số 29C12345',
         version: 1,
       },
     ],
@@ -294,7 +294,7 @@ export let INITIAL_GPS_HISTORY: Record<string, { periods: GpsMappingPeriod[]; au
         actionLabel: 'Tự động khớp',
         oldValue: '—',
         newValue: 'IMEI: 8612000954000',
-        reason: 'Khớp 1-1 với biển số Xanh GPS 29C-123.45',
+        reason: 'Khớp 1-1 với biển số Xanh GPS 29C12345',
       },
     ],
   },
@@ -303,7 +303,7 @@ export let INITIAL_GPS_HISTORY: Record<string, { periods: GpsMappingPeriod[]; au
       {
         id: 'p-104-b',
         vehicleId: 'v4',
-        plate: '15B-333.44',
+        plate: '15B33344',
         imei: '8612345678222',
         validFrom: '20/09/2026 14:00',
         validTo: null,
@@ -317,7 +317,7 @@ export let INITIAL_GPS_HISTORY: Record<string, { periods: GpsMappingPeriod[]; au
       {
         id: 'p-104-a',
         vehicleId: 'v4',
-        plate: '15B-333.44',
+        plate: '15B33344',
         imei: '8612000111222',
         validFrom: '01/08/2026 09:00',
         validTo: '20/09/2026 14:00',
@@ -351,10 +351,10 @@ export let INITIAL_UNMATCHED_DEVICES: UnmatchedDeviceRecord[] = [
   {
     id: 'ud-1',
     imei: '861200055501',
-    midPlate: '29C-555.01',
+    midPlate: '29C55501',
     reason: 'NO_PLATE_MATCH',
     reasonLabel: 'Biển không khớp xe nào',
-    suggestions: [{ id: 'v1', plate: '29C-123.45', stationName: 'Trạm Hoàng Mai' }],
+    suggestions: [{ id: 'v1', plate: '29C12345', stationName: 'Trạm Hoàng Mai' }],
     firstSeenAt: '27/09/2026 08:10:00',
     lastSeenAt: '10:20:40',
     signalReason: 'Đang dừng',
@@ -364,10 +364,10 @@ export let INITIAL_UNMATCHED_DEVICES: UnmatchedDeviceRecord[] = [
   {
     id: 'ud-2',
     imei: '861200077777',
-    midPlate: '30A-777.77',
+    midPlate: '30A77777',
     reason: 'MULTI_IMEI',
     reasonLabel: 'Nhiều thiết bị cùng biển (2)',
-    suggestions: [{ id: 'v3', plate: '30F-111.22', stationName: 'Trạm Hà Đông' }],
+    suggestions: [{ id: 'v3', plate: '30F11122', stationName: 'Trạm Hà Đông' }],
     firstSeenAt: '27/09/2026 07:30:00',
     lastSeenAt: '10:19:10',
     signalReason: 'Mất định vị GPS',
@@ -390,10 +390,10 @@ export let INITIAL_UNMATCHED_DEVICES: UnmatchedDeviceRecord[] = [
   {
     id: 'ud-4',
     imei: '861200099999',
-    midPlate: '15B-333.44',
+    midPlate: '15B33344',
     reason: 'VEHICLE_ALREADY_MAPPED',
     reasonLabel: 'Xe đã gắn thiết bị khác',
-    suggestions: [{ id: 'v4', plate: '15B-333.44', stationName: 'Trạm Hải Phòng' }],
+    suggestions: [{ id: 'v4', plate: '15B33344', stationName: 'Trạm Hải Phòng' }],
     firstSeenAt: '27/09/2026 06:00:00',
     lastSeenAt: '08:30:15',
     signalReason: 'Đang chạy',
@@ -403,7 +403,7 @@ export let INITIAL_UNMATCHED_DEVICES: UnmatchedDeviceRecord[] = [
   {
     id: 'ud-5',
     imei: '861200066666',
-    midPlate: '51A-999.99',
+    midPlate: '51A99999',
     reason: 'NO_PLATE_MATCH',
     reasonLabel: 'Biển không khớp xe nào',
     suggestions: [],

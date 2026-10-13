@@ -23,6 +23,27 @@ export interface PartnerPersona {
 
 export type VehicleType = 'san_truot' | 'san_nang_truot' | 'san_truot_cau';
 
+export type RescueCapability = 'slide' | 'tow' | 'crane' | 'fork';
+
+export type AcceptedVehicleKind = 'car' | 'suv' | 'pickup' | 'ev' | 'light_truck' | 'van';
+
+export type MaintenancePlanStatus = 'NORMAL' | 'DUE_SOON' | 'OVERDUE';
+
+export interface VehicleMaintenanceOrder {
+  id: string;
+  createdAt: string;
+  content: string;
+  status: 'OPEN' | 'DONE';
+}
+
+export interface VehicleMaintenanceHistory {
+  id: string;
+  at: string;
+  odoKm: string;
+  content: string;
+  costVnd?: string;
+}
+
 export type VehicleToolCondition = 'GOOD' | 'BROKEN' | 'MISSING';
 
 export interface VehicleToolItem {
@@ -34,6 +55,9 @@ export interface VehicleToolItem {
   condition?: VehicleToolCondition;
   unit?: string;
   note?: string;
+  assetCode?: string;
+  required?: boolean;
+  expiryAt?: string;
 }
 
 export const TOOL_CONDITION_LABEL: Record<VehicleToolCondition, string> = {
@@ -131,6 +155,11 @@ export const IMEI_OPTIONS = [
   '03BD001122',
 ];
 
+/** Biển số chỉ giữ chữ và số, viết hoa, bỏ ký tự đặc biệt và khoảng trắng. */
+export function normalizePlate(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 export interface VehicleRecord {
   id: string;
   plate: string;
@@ -171,6 +200,44 @@ export interface VehicleRecord {
   physicalInsDueDays: number;
   tools: VehicleToolItem[];
   revenueMonth: number;
+  ownership?: 'Công ty' | 'Thuê' | 'Đối tác vệ tinh';
+  fuel?: string;
+  mgmtNo?: string;
+  legalType?: string;
+  inspectionValidUntil?: string;
+  country?: string;
+  nienHan?: string;
+  caiTao?: string;
+  caiHoan?: boolean;
+  caiHoanGcn?: string;
+  kdvt?: string;
+  kdvtYes?: boolean;
+  outerSize?: string;
+  outerLengthMm?: string;
+  outerWidthMm?: string;
+  outerHeightMm?: string;
+  wheelFormula?: string;
+  cargoTkKg?: string;
+  towTkKg?: string;
+  totalTkKg?: string;
+  lowClearance?: boolean;
+  rescueCapabilities?: RescueCapability[];
+  acceptedVehicles?: AcceptedVehicleKind[];
+  /** Khối lượng theo đăng kiểm, kg */
+  weightTkKg?: string;
+  weightCpKg?: string;
+  cargoCpKg?: string;
+  towCpKg?: string;
+  totalCpKg?: string;
+  deckLengthMm?: string;
+  deckWidthMm?: string;
+  maintenanceCycleKm?: string;
+  maintenanceLastAt?: string;
+  maintenanceNextAt?: string;
+  maintenanceStatus?: MaintenancePlanStatus;
+  odoKm?: string;
+  maintenanceOrders?: VehicleMaintenanceOrder[];
+  maintenanceHistory?: VehicleMaintenanceHistory[];
 }
 
 export interface VehiclePhoto {
@@ -290,6 +357,28 @@ export const VEHICLE_TYPE_LABEL: Record<VehicleType, string> = {
   san_truot: 'Sàn trượt',
   san_nang_truot: 'Sàn nâng trượt',
   san_truot_cau: 'Sàn trượt, cẩu',
+};
+
+export const RESCUE_CAPABILITY_LABEL: Record<RescueCapability, string> = {
+  slide: 'Sàn trượt',
+  tow: 'Kéo',
+  crane: 'Cẩu',
+  fork: 'Càng nâng',
+};
+
+export const ACCEPTED_VEHICLE_LABEL: Record<AcceptedVehicleKind, string> = {
+  car: 'Xe con',
+  suv: 'SUV',
+  pickup: 'Bán tải',
+  ev: 'Xe điện',
+  light_truck: 'Tải nhẹ',
+  van: 'Xe van',
+};
+
+export const MAINTENANCE_STATUS_LABEL: Record<MaintenancePlanStatus, string> = {
+  NORMAL: 'Đúng hạn',
+  DUE_SOON: 'Sắp đến hạn',
+  OVERDUE: 'Quá hạn',
 };
 
 export const ROLE_LABEL: Record<PartnerRole, string> = {
@@ -446,32 +535,123 @@ export const toolsFor = (type: VehicleType, broken?: string[]): VehicleToolItem[
       quantity: isBroken ? 0 : std,
       condition: isBroken ? 'BROKEN' : 'GOOD',
       status: isBroken ? 0 : 1,
+      required: std > 0,
+      assetCode: `CC-${String(i + 1).padStart(3, '0')}`,
     };
   });
 
+const demoFleet = (
+  rows: Array<{
+    id: string;
+    plate: string;
+    hnl: number;
+    brand: VehicleRecord['brand'];
+    modelLine: string;
+    stationId: string;
+    driverId: string | null;
+    type: VehicleType;
+    loadCarry: string;
+    loadCrane?: string;
+    status: NonNullable<VehicleRecord['status']>;
+    ownership: NonNullable<VehicleRecord['ownership']>;
+    year: number;
+    registrationDate: string;
+    address: string;
+    inspectionDueDays: number;
+    gplhDueDays: number;
+    tndsDueDays: number;
+    broken?: string[];
+    maintenanceStatus?: MaintenancePlanStatus;
+  }>,
+): VehicleRecord[] =>
+  rows.map((row) => ({
+    id: row.id,
+    plate: row.plate,
+    hnl: row.hnl,
+    imei: `86${String(row.hnl).padStart(4, '0')}000001`,
+    brand: row.brand,
+    modelLine: row.modelLine,
+    chassis: `CH${row.plate}${row.hnl}`,
+    engineNo: `ENG-${row.hnl}`,
+    year: row.year,
+    registrationDate: row.registrationDate,
+    stationId: row.stationId,
+    driverId: row.driverId,
+    driverIds: row.driverId ? [row.driverId] : [],
+    type: row.type,
+    loadCarry: row.loadCarry,
+    loadCrane: row.loadCrane ?? '—',
+    loadLift: row.type === 'san_nang_truot' ? '3 tấn' : '—',
+    seats: '3',
+    runStatus: row.status === 'MAINTENANCE' ? 'repair' : 'active',
+    status: row.status,
+    services: ['Xe hết pin', 'Kích bình ắc quy'],
+    idleHours: 6 + (row.hnl % 20),
+    inspectionDueDays: row.inspectionDueDays,
+    maintenanceDueDays: 18,
+    gplhDueDays: row.gplhDueDays,
+    tndsDueDays: row.tndsDueDays,
+    physicalInsDueDays: 40,
+    tools: toolsFor(row.type, row.broken),
+    revenueMonth: 8_000_000 + row.hnl * 100_000,
+    ownership: row.ownership,
+    fuel: 'Diesel',
+    parkAddress: row.address,
+    rescueCapabilities:
+      row.type === 'san_truot_cau'
+        ? ['slide', 'tow', 'crane']
+        : row.type === 'san_nang_truot'
+          ? ['slide', 'fork']
+          : ['slide', 'tow'],
+    acceptedVehicles: ['car', 'suv', 'pickup'],
+    cargoCpKg: '2500',
+    towCpKg: '4000',
+    totalCpKg: '8500',
+    maintenanceStatus: row.maintenanceStatus ?? 'NORMAL',
+    odoKm: String(8000 + row.hnl * 120),
+  }));
+
 export const VEHICLES: VehicleRecord[] = [
   {
-    id: 'v1', plate: '29C-123.45', hnl: 21, imei: '00BD000954', brand: 'Isuzu', modelLine: 'NPR 400', chassis: 'JALC4B16X07001234', engineNo: '4HK1-123456',
+    id: 'v1', plate: '29C12345', hnl: 21, imei: '00BD000954', brand: 'Isuzu', modelLine: 'NPR 400', chassis: 'JALC4B16X07001234', engineNo: '4HK1-123456',
     year: 2022, registrationDate: '15/03/2022', stationId: 'tt-hm', driverId: 's6', driverIds: ['s6', 's7'],
     driverAssignedAt: { s6: '01/06/2026', s7: '15/07/2026' },
     type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '8 tấn', loadLift: '—', seats: '3', runStatus: 'active',
-    status: 'READY',
+    status: 'STOPPED',
     services: ['Xe hết pin', 'Kích bình ắc quy', 'Cẩu kéo xe tai nạn', 'Kéo xe ngập nước'],
-    idleHours: 6, inspectionDueDays: 22, maintenanceDueDays: 12, gplhDueDays: 40, tndsDueDays: 18, physicalInsDueDays: 9,
-    tools: toolsFor('san_truot_cau', ['Xích']), revenueMonth: 48_500_000,
+    idleHours: 6, inspectionDueDays: 22, maintenanceDueDays: 12, gplhDueDays: 40, tndsDueDays: -15, physicalInsDueDays: 9,
+    tools: toolsFor('san_truot_cau', ['Xích']), revenueMonth: 48_500_000, ownership: 'Công ty', fuel: 'Diesel',
+    mgmtNo: '2903V-012345', legalType: 'Ô tô cứu hộ giao thông', inspectionValidUntil: '11/09/2026', country: 'Nhật Bản',     nienHan: '2047', caiHoan: true, caiHoanGcn: 'GCN-2903-2022', caiTao: 'Có · GCN-2903-2022', kdvtYes: true, kdvt: 'Có',
+    outerLengthMm: '7450', outerWidthMm: '2250', outerHeightMm: '2950', outerSize: '7450 × 2250 × 2950', wheelFormula: '4x2',
+    cargoTkKg: '5500', towTkKg: '4000', totalTkKg: '10645', lowClearance: true,
+    rescueCapabilities: ['slide', 'tow', 'crane'],
+    acceptedVehicles: ['car', 'suv', 'pickup', 'ev'],
+    weightTkKg: '4500', weightCpKg: '8000', cargoCpKg: '3500', towCpKg: '8000', totalCpKg: '11500',
+    deckLengthMm: '5600', deckWidthMm: '2100',
+    maintenanceCycleKm: '5000', maintenanceLastAt: '2026-07-15', maintenanceNextAt: '2026-10-15',
+    maintenanceStatus: 'DUE_SOON', odoKm: '14280',
+    maintenanceOrders: [],
+    maintenanceHistory: [{ id: 'mh-v1', at: '15/07/2026', odoKm: '10120', content: 'Bảo dưỡng cấp 1', costVnd: '4.200.000' }],
   },
   {
-    id: 'v2', plate: '29C-678.90', hnl: 22, imei: '00BD000A3B', brand: 'Hino', modelLine: 'XZU 720', chassis: 'JHHFC2J5XK0002211', engineNo: 'N04C-778899',
+    id: 'v2', plate: '29C67890', hnl: 22, imei: '00BD000A3B', brand: 'Hino', modelLine: 'XZU 720', chassis: 'JHHFC2J5XK0002211', engineNo: 'N04C-778899',
     year: 2021, registrationDate: '20/07/2021', stationId: 'tt-hm', driverId: 's7', driverIds: ['s7'],
     driverAssignedAt: { s7: '20/07/2026' },
     type: 'san_truot', loadCarry: '3.5 tấn', loadCrane: '—', loadLift: '—', seats: '3', runStatus: 'active',
     status: 'READY',
     services: ['Xe hết pin', 'Kích bình ắc quy', 'Thay lốp dự phòng'],
     idleHours: 80, inspectionDueDays: 45, maintenanceDueDays: 4, gplhDueDays: 5, tndsDueDays: 60, physicalInsDueDays: 20,
-    tools: toolsFor('san_truot'), revenueMonth: 12_200_000,
+    tools: toolsFor('san_truot'), revenueMonth: 12_200_000, ownership: 'Công ty', fuel: 'Diesel',
+    rescueCapabilities: ['slide', 'tow'],
+    acceptedVehicles: ['car', 'suv', 'ev'],
+    weightTkKg: '3200', weightCpKg: '5500', cargoCpKg: '2000', towCpKg: '3500', totalCpKg: '7500',
+    deckLengthMm: '4800', deckWidthMm: '2000',
+    maintenanceCycleKm: '5000', maintenanceLastAt: '2026-06-10', maintenanceNextAt: '2026-10-01',
+    maintenanceStatus: 'OVERDUE', odoKm: '10050',
+    maintenanceHistory: [{ id: 'mh-v2', at: '10/06/2026', odoKm: '5200', content: 'Bảo dưỡng cấp 2' }],
   },
   {
-    id: 'v3', plate: '30F-111.22', hnl: 31, imei: '01BD000C12', brand: 'Dongfeng', modelLine: 'Captain C', chassis: 'LGAX4B123D0003311', engineNo: 'CY4102-331122',
+    id: 'v3', plate: '30F11122', hnl: 31, imei: '01BD000C12', brand: 'Dongfeng', modelLine: 'Captain C', chassis: 'LGAX4B123D0003311', engineNo: 'CY4102-331122',
     year: 2023, registrationDate: '10/01/2023', stationId: 'tt-hd', driverId: 's9', driverIds: ['s9'],
     driverAssignedAt: { s9: '10/02/2026' },
     type: 'san_nang_truot', loadCarry: '4 tấn', loadCrane: '—', loadLift: '3 tấn', seats: '2', runStatus: 'repair',
@@ -481,26 +661,66 @@ export const VEHICLES: VehicleRecord[] = [
     expectedReturnAt: '05/03/2026 17:00',
     services: ['Cứu hộ xe ngập nước', 'Kéo xe sự cố'],
     idleHours: 200, inspectionDueDays: 8, maintenanceDueDays: 2, gplhDueDays: 90, tndsDueDays: 3, physicalInsDueDays: 50,
-    tools: toolsFor('san_nang_truot', ['Dây tăng bánh', 'Đèn pin']), revenueMonth: 0,
+    tools: toolsFor('san_nang_truot', ['Dây tăng bánh', 'Đèn pin']), revenueMonth: 0, ownership: 'Công ty', fuel: 'Diesel',
+    rescueCapabilities: ['slide', 'fork'],
+    acceptedVehicles: ['car', 'pickup', 'light_truck'],
+    weightTkKg: '4100', weightCpKg: '7000', cargoCpKg: '2800', towCpKg: '4000', totalCpKg: '9800',
+    deckLengthMm: '5200', deckWidthMm: '2050',
+    maintenanceCycleKm: '5000', maintenanceLastAt: '2026-04-12', maintenanceNextAt: '2026-11-25',
+    maintenanceStatus: 'NORMAL', odoKm: '18400',
   },
   {
-    id: 'v4', plate: '15B-333.44', hnl: 41, imei: '01BD000D45', brand: 'Isuzu', modelLine: 'FRR 90', chassis: 'JALC4B16X07004411', engineNo: '4HK1-441122',
+    id: 'v4', plate: '15B33344', hnl: 41, imei: '01BD000D45', brand: 'Isuzu', modelLine: 'FRR 90', chassis: 'JALC4B16X07004411', engineNo: '4HK1-441122',
     year: 2020, registrationDate: '05/11/2020', stationId: 'tt-hp', driverId: null, driverIds: [],
     type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '8 tấn', loadLift: '—', seats: '3', runStatus: 'active',
     status: 'READY',
     services: ['Cẩu kéo xe tải', 'Xe hết pin', 'Cẩu kéo xe tai nạn'],
     idleHours: 10, inspectionDueDays: 70, maintenanceDueDays: 20, gplhDueDays: 15, tndsDueDays: 25, physicalInsDueDays: 40,
-    tools: toolsFor('san_truot_cau'), revenueMonth: 31_000_000,
+    tools: toolsFor('san_truot_cau'), revenueMonth: 31_000_000, ownership: 'Thuê', fuel: 'Diesel',
+    rescueCapabilities: ['slide', 'crane', 'tow'],
+    acceptedVehicles: ['car', 'suv', 'pickup', 'light_truck'],
+    weightTkKg: '4800', weightCpKg: '8500', cargoCpKg: '3700', towCpKg: '8000', totalCpKg: '12200',
+    deckLengthMm: '5800', deckWidthMm: '2200',
+    maintenanceCycleKm: '5000', maintenanceLastAt: '2026-02-20', maintenanceNextAt: '2026-10-10',
+    maintenanceStatus: 'DUE_SOON', odoKm: '4890',
   },
   {
-    id: 'v5', plate: '51C-555.66', hnl: 51, imei: '02BD000E78', brand: 'Hino', modelLine: 'XZU 650', chassis: 'JHHFC2J5XK0005511', engineNo: 'N04C-551133',
+    id: 'v5', plate: '51C55566', hnl: 51, imei: '02BD000E78', brand: 'Hino', modelLine: 'XZU 650', chassis: 'JHHFC2J5XK0005511', engineNo: 'N04C-551133',
     year: 2024, registrationDate: '18/02/2024', stationId: 'tt-bt', driverId: null, driverIds: [],
     type: 'san_truot', loadCarry: '3.5 tấn', loadCrane: '—', loadLift: '—', seats: '2', runStatus: 'active',
     status: 'READY',
     services: ['Kích bình ắc quy', 'Thay lốp dự phòng', 'Tiếp nhiên liệu'],
     idleHours: 4, inspectionDueDays: 100, maintenanceDueDays: 30, gplhDueDays: 80, tndsDueDays: 40, physicalInsDueDays: 12,
-    tools: toolsFor('san_truot'), revenueMonth: 55_800_000,
+    tools: toolsFor('san_truot'), revenueMonth: 55_800_000, ownership: 'Đối tác vệ tinh', fuel: 'Diesel',
+    rescueCapabilities: ['slide'],
+    acceptedVehicles: ['car', 'suv', 'van'],
+    weightTkKg: '3000', weightCpKg: '5200', cargoCpKg: '1800', towCpKg: '2500', totalCpKg: '7000',
+    deckLengthMm: '4500', deckWidthMm: '1900',
+    maintenanceCycleKm: '5000', maintenanceLastAt: '2026-08-18', maintenanceNextAt: '2026-12-15',
+    maintenanceStatus: 'NORMAL', odoKm: '22100',
   },
+  ...demoFleet([
+    { id: 'v6', plate: '29H24680', hnl: 23, brand: 'Isuzu', modelLine: 'NPR 85', stationId: 'tt-hm', driverId: 's6', type: 'san_truot', loadCarry: '3.5 tấn', status: 'READY', ownership: 'Công ty', year: 2023, registrationDate: '12/04/2023', address: 'Ngã tư Giải Phóng - Kim Đồng, Hoàng Mai', inspectionDueDays: 60, gplhDueDays: 90, tndsDueDays: 48 },
+    { id: 'v7', plate: '30A13579', hnl: 32, brand: 'Hino', modelLine: '500 Series', stationId: 'tt-hd', driverId: 's9', type: 'san_truot_cau', loadCarry: '8 tấn', loadCrane: '10 tấn', status: 'WORKING', ownership: 'Công ty', year: 2021, registrationDate: '03/08/2021', address: 'Quang Trung, Hà Đông, Hà Nội', inspectionDueDays: 40, gplhDueDays: 55, tndsDueDays: 33 },
+    { id: 'v8', plate: '15C86420', hnl: 42, brand: 'Dongfeng', modelLine: 'Hoàng Huy', stationId: 'tt-hp', driverId: null, type: 'san_truot', loadCarry: '2.5 tấn', status: 'STOPPED', ownership: 'Thuê', year: 2019, registrationDate: '19/01/2019', address: 'Cầu Niệm, Lê Chân, Hải Phòng', inspectionDueDays: -12, gplhDueDays: 20, tndsDueDays: 14 },
+    { id: 'v9', plate: '51G97531', hnl: 52, brand: 'Isuzu', modelLine: 'QKR 270', stationId: 'tt-bt', driverId: null, type: 'san_nang_truot', loadCarry: '4 tấn', status: 'READY', ownership: 'Đối tác vệ tinh', year: 2022, registrationDate: '28/05/2022', address: 'Xô Viết Nghệ Tĩnh, Bình Thạnh', inspectionDueDays: 18, gplhDueDays: 26, tndsDueDays: -8 },
+    { id: 'v10', plate: '29K11223', hnl: 24, brand: 'Hino', modelLine: '300 Dutro', stationId: 'tt-hm', driverId: 's7', type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '6 tấn', status: 'MAINTENANCE', ownership: 'Công ty', year: 2020, registrationDate: '07/09/2020', address: 'Xưởng Hoàng Mai, Tam Trinh', inspectionDueDays: 75, gplhDueDays: 40, tndsDueDays: 22, maintenanceStatus: 'OVERDUE' },
+    { id: 'v11', plate: '30E33445', hnl: 33, brand: 'Isuzu', modelLine: 'NMR 85', stationId: 'tt-hd', driverId: 's9', type: 'san_truot', loadCarry: '3 tấn', status: 'READY', ownership: 'Công ty', year: 2024, registrationDate: '14/02/2024', address: 'Tô Hiệu, Hà Đông', inspectionDueDays: 9, gplhDueDays: 70, tndsDueDays: 16 },
+    { id: 'v12', plate: '15H55667', hnl: 43, brand: 'Dongfeng', modelLine: 'Captain', stationId: 'tt-hp', driverId: null, type: 'san_truot', loadCarry: '3.5 tấn', status: 'INACTIVE', ownership: 'Thuê', year: 2018, registrationDate: '22/11/2018', address: 'Lạch Tray, Ngô Quyền, Hải Phòng', inspectionDueDays: 120, gplhDueDays: 80, tndsDueDays: 50 },
+    { id: 'v13', plate: '51K77889', hnl: 53, brand: 'Hino', modelLine: 'FC9J', stationId: 'tt-bt', driverId: null, type: 'san_truot_cau', loadCarry: '6 tấn', loadCrane: '8 tấn', status: 'WORKING', ownership: 'Công ty', year: 2023, registrationDate: '01/06/2023', address: 'Điện Biên Phủ, Bình Thạnh', inspectionDueDays: 55, gplhDueDays: 44, tndsDueDays: 61 },
+    { id: 'v14', plate: '29L99001', hnl: 25, brand: 'Isuzu', modelLine: 'FRR 650', stationId: 'tt-hm', driverId: 's6', type: 'san_nang_truot', loadCarry: '4 tấn', status: 'READY', ownership: 'Công ty', year: 2021, registrationDate: '16/10/2021', address: 'Định Công, Hoàng Mai', inspectionDueDays: 35, gplhDueDays: 28, tndsDueDays: 42, broken: ['Xích', 'Đèn pin'] },
+    { id: 'v15', plate: '30H22334', hnl: 34, brand: 'Dongfeng', modelLine: 'B180', stationId: 'tt-hd', driverId: 's9', type: 'san_truot', loadCarry: '5 tấn', status: 'STOPPED', ownership: 'Thuê', year: 2020, registrationDate: '09/03/2020', address: 'Vạn Phúc, Hà Đông', inspectionDueDays: 50, gplhDueDays: -6, tndsDueDays: 19 },
+    { id: 'v16', plate: '15K44556', hnl: 44, brand: 'Hino', modelLine: 'XZU 730', stationId: 'tt-hp', driverId: null, type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '7 tấn', status: 'READY', ownership: 'Công ty', year: 2022, registrationDate: '30/07/2022', address: 'Tô Hiệu, Lê Chân, Hải Phòng', inspectionDueDays: 88, gplhDueDays: 64, tndsDueDays: 27 },
+    { id: 'v17', plate: '51D66778', hnl: 54, brand: 'Isuzu', modelLine: 'NQR 550', stationId: 'tt-bt', driverId: null, type: 'san_truot', loadCarry: '4 tấn', status: 'MAINTENANCE', ownership: 'Đối tác vệ tinh', year: 2019, registrationDate: '11/12/2019', address: 'Nguyễn Xí, Bình Thạnh', inspectionDueDays: 14, gplhDueDays: 33, tndsDueDays: 8, maintenanceStatus: 'DUE_SOON' },
+    { id: 'v18', plate: '29M88990', hnl: 26, brand: 'Hino', modelLine: 'XZU 342', stationId: 'tt-hm', driverId: 's7', type: 'san_truot', loadCarry: '2.5 tấn', status: 'READY', ownership: 'Công ty', year: 2025, registrationDate: '04/01/2025', address: 'Giáp Bát, Hoàng Mai', inspectionDueDays: 140, gplhDueDays: 200, tndsDueDays: 110 },
+    { id: 'v19', plate: '30K10112', hnl: 35, brand: 'Isuzu', modelLine: 'FVR 900', stationId: 'tt-hd', driverId: null, type: 'san_truot_cau', loadCarry: '9 tấn', loadCrane: '12 tấn', status: 'READY', ownership: 'Công ty', year: 2018, registrationDate: '25/06/2018', address: 'Mỗ Lao, Hà Đông', inspectionDueDays: 4, gplhDueDays: 12, tndsDueDays: 7 },
+    { id: 'v20', plate: '15L12131', hnl: 45, brand: 'Dongfeng', modelLine: 'KR 230', stationId: 'tt-hp', driverId: null, type: 'san_nang_truot', loadCarry: '3.5 tấn', status: 'WORKING', ownership: 'Thuê', year: 2024, registrationDate: '17/09/2024', address: 'Cảng Hải Phòng, Ngô Quyền', inspectionDueDays: 95, gplhDueDays: 70, tndsDueDays: 36 },
+    { id: 'v21', plate: '51H14151', hnl: 55, brand: 'Hino', modelLine: '300 Wide', stationId: 'tt-bt', driverId: null, type: 'san_truot', loadCarry: '4.5 tấn', status: 'READY', ownership: 'Thuê', year: 2022, registrationDate: '08/08/2022', address: 'Ung Văn Khiêm, Bình Thạnh', inspectionDueDays: 62, gplhDueDays: 41, tndsDueDays: 29 },
+    { id: 'v22', plate: '29N16171', hnl: 27, brand: 'Dongfeng', modelLine: 'Captain C', stationId: 'tt-hm', driverId: 's6', type: 'san_truot_cau', loadCarry: '6 tấn', loadCrane: '8 tấn', status: 'INACTIVE', ownership: 'Công ty', year: 2017, registrationDate: '02/02/2017', address: 'Lĩnh Nam, Hoàng Mai', inspectionDueDays: -30, gplhDueDays: -4, tndsDueDays: 5, broken: ['Ma ní'] },
+    { id: 'v23', plate: '30L18191', hnl: 36, brand: 'Isuzu', modelLine: 'QKR 230', stationId: 'tt-hd', driverId: 's9', type: 'san_truot', loadCarry: '2.5 tấn', status: 'READY', ownership: 'Đối tác vệ tinh', year: 2023, registrationDate: '21/03/2023', address: 'Dương Nội, Hà Đông', inspectionDueDays: 47, gplhDueDays: 58, tndsDueDays: 21 },
+    { id: 'v24', plate: '15M20212', hnl: 46, brand: 'Hino', modelLine: 'FG8J', stationId: 'tt-hp', driverId: null, type: 'san_truot_cau', loadCarry: '7 tấn', loadCrane: '9 tấn', status: 'STOPPED', ownership: 'Công ty', year: 2020, registrationDate: '13/05/2020', address: 'Đình Vũ, Hải An, Hải Phòng', inspectionDueDays: -3, gplhDueDays: 15, tndsDueDays: -20 },
+    { id: 'v25', plate: '51L22232', hnl: 56, brand: 'Dongfeng', modelLine: 'B190', stationId: 'tt-bt', driverId: null, type: 'san_nang_truot', loadCarry: '5 tấn', status: 'READY', ownership: 'Công ty', year: 2024, registrationDate: '29/11/2024', address: 'Nơ Trang Long, Bình Thạnh', inspectionDueDays: 110, gplhDueDays: 86, tndsDueDays: 73, broken: ['Dây cáp vải'] },
+  ]),
 ];
 
 export const PARTNER_STAFF: PartnerStaffRecord[] = [
@@ -721,16 +941,16 @@ export const STAFF_LOG_KIND_LABEL: Record<StaffLogKind, string> = {
 };
 
 export const STAFF_USER_LOGS: StaffUserLog[] = [
-  { id: 'lg-s6-1', staffId: 's6', kind: 'rescue', at: '20/08/2026 07:40', summary: 'RS-29C123-260820-0712 · Kéo xe · Xe 29C-123.45 · Hoàn thành', byName: 'Hệ thống' },
-  { id: 'lg-s6-2', staffId: 's6', kind: 'rescue', at: '19/08/2026 16:40', summary: 'RS-29C123-260819-4412 · Cứu hộ lốp · Xe 29C-123.45 · Hoàn thành', byName: 'Hệ thống' },
-  { id: 'lg-s6-3', staffId: 's6', kind: 'vehicle', at: '01/06/2026 08:00', summary: 'Ghép xe 29C-123.45 · Người thực hiện: Lê Thị Hoa', byName: 'Lê Thị Hoa (GDCN)' },
+  { id: 'lg-s6-1', staffId: 's6', kind: 'rescue', at: '20/08/2026 07:40', summary: 'RS-29C123-260820-0712 · Kéo xe · Xe 29C12345 · Hoàn thành', byName: 'Hệ thống' },
+  { id: 'lg-s6-2', staffId: 's6', kind: 'rescue', at: '19/08/2026 16:40', summary: 'RS-29C123-260819-4412 · Cứu hộ lốp · Xe 29C12345 · Hoàn thành', byName: 'Hệ thống' },
+  { id: 'lg-s6-3', staffId: 's6', kind: 'vehicle', at: '01/06/2026 08:00', summary: 'Ghép xe 29C12345 · Người thực hiện: Lê Thị Hoa', byName: 'Lê Thị Hoa (GDCN)' },
   { id: 'lg-s6-4', staffId: 's6', kind: 'profile', at: '18/08/2026 11:05', summary: 'Cập nhật bằng lái: hết hạn 01/06/2027 → 01/06/2029', byName: 'Đỗ Văn Long (GDTT)', field: 'Bằng lái xe', before: 'Hết hạn: 01/06/2027', after: 'Hết hạn: 01/06/2029' },
   { id: 'lg-s6-5', staffId: 's6', kind: 'transfer', at: '01/03/2026 09:15', summary: 'Trạm Hà Đông → Trạm Hoàng Mai · Duyệt: Lê Thị Hoa', byName: 'Lê Thị Hoa (GDCN)' },
-  { id: 'lg-s5-1', staffId: 's5', kind: 'rescue', at: '20/08/2026 09:22', summary: 'RS-29C678-260820-1188 · Kéo xe · Xe 29C-678.90 · Đang thực hiện', byName: 'Hệ thống' },
+  { id: 'lg-s5-1', staffId: 's5', kind: 'rescue', at: '20/08/2026 09:22', summary: 'RS-29C678-260820-1188 · Kéo xe · Xe 29C67890 · Đang thực hiện', byName: 'Hệ thống' },
   { id: 'lg-s5-2', staffId: 's5', kind: 'profile', at: '19/08/2026 14:10', summary: 'Đổi loại hợp đồng: Bán thời gian → Toàn thời gian', byName: 'Nguyễn Văn Bình (BDH)', field: 'Loại hợp đồng', before: 'Bán thời gian', after: 'Toàn thời gian' },
   { id: 'lg-s5-3', staffId: 's5', kind: 'transfer', at: '20/06/2026 08:00', summary: 'Trạm Hà Đông → Trạm Hoàng Mai', byName: 'Lê Thị Hoa (GDCN)' },
-  { id: 'lg-s9-1', staffId: 's9', kind: 'rescue', at: '17/08/2026 15:33', summary: 'RS-29C999-260817-5510 · Kích bình · Xe 30F-111.22 · Hoàn thành', byName: 'Hệ thống' },
-  { id: 'lg-s9-2', staffId: 's9', kind: 'vehicle', at: '10/02/2026 08:00', summary: 'Ghép xe 30F-111.22 · Người thực hiện: Phạm Quốc Huy', byName: 'Phạm Quốc Huy (QLVUNG)' },
+  { id: 'lg-s9-1', staffId: 's9', kind: 'rescue', at: '17/08/2026 15:33', summary: 'RS-29C999-260817-5510 · Kích bình · Xe 30F11122 · Hoàn thành', byName: 'Hệ thống' },
+  { id: 'lg-s9-2', staffId: 's9', kind: 'vehicle', at: '10/02/2026 08:00', summary: 'Ghép xe 30F11122 · Người thực hiện: Phạm Quốc Huy', byName: 'Phạm Quốc Huy (QLVUNG)' },
   { id: 'lg-s9-3', staffId: 's9', kind: 'transfer', at: '12/01/2026 10:20', summary: 'Trạm Hoàng Mai → Trạm Hà Đông · Duyệt: Phạm Quốc Huy', byName: 'Phạm Quốc Huy (QLVUNG)' },
   { id: 'lg-s10-1', staffId: 's10', kind: 'lock', at: '05/08/2026 10:00', summary: 'Khóa tài khoản · Nghỉ việc, tạm hoãn hợp đồng', byName: 'Trần Minh Đức (GDM)' },
   { id: 'lg-s7-1', staffId: 's7', kind: 'account', at: '08/01/2021 09:00', summary: 'Tạo hồ sơ, chưa cấp tài khoản', byName: 'Đỗ Văn Long (GDTT)' },
@@ -788,7 +1008,7 @@ const expiryFromDays = (days: number) => {
 export const VEHICLE_DOCUMENTS: Record<string, VehicleDocument[]> = {
   v1: [
     { id: 'd1', name: 'Giấy đăng kiểm', type: 'Đăng kiểm', number: 'GT-00001', issuedAt: '20/08/2025', expiryAt: expiryFromDays(22), fileName: 'dang-kiem-29C12345.pdf', fileUrl: 'https://picsum.photos/seed/doc-d1/800/1100' },
-    { id: 'd2', name: 'BH TNDS bắt buộc', type: 'BH TNDS', number: 'GT-00002', issuedAt: '20/08/2025', expiryAt: expiryFromDays(18), fileName: 'tnds-29C12345.pdf', fileUrl: 'https://picsum.photos/seed/doc-d2/800/1100' },
+    { id: 'd2', name: 'BH TNDS bắt buộc', type: 'BH TNDS', number: 'GT-00002', issuedAt: '20/08/2025', expiryAt: expiryFromDays(-15), fileName: 'tnds-29C12345.pdf', fileUrl: 'https://picsum.photos/seed/doc-d2/800/1100' },
     { id: 'd3', name: 'BH vật chất xe', type: 'BH vật chất', number: 'GT-00003', issuedAt: '05/09/2025', expiryAt: expiryFromDays(9), fileName: 'vat-chat-29C12345.pdf', fileUrl: 'https://picsum.photos/seed/doc-d3/800/1100' },
     { id: 'd4', name: 'Giấy phép lưu hành', type: 'GPLH', number: 'GT-00004', issuedAt: '01/01/2026', expiryAt: expiryFromDays(40), fileName: 'gplh-29C12345.pdf', fileUrl: 'https://picsum.photos/seed/doc-d4/800/1100' },
   ],
@@ -977,7 +1197,7 @@ export const VEHICLE_PAIRING_HISTORY: Record<string, VehicleDriverPairing[]> = {
       validTo: '01/06/2026 07:30',
       pairedBy: 'Đỗ Văn Long (GDTT)',
       endReason: 'Chuyển xe khác / đổi ca trực',
-      endNote: 'Chuyển sang xe 29C-678.90',
+      endNote: 'Chuyển sang xe 29C67890',
     },
   ],
   v2: [
