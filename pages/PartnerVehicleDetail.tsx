@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -10,6 +10,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   Clock,
   Copy,
@@ -94,6 +95,7 @@ import {
   toolReady,
 } from '../data/partnerRescueMockData';
 import RescueOrderGpsJourney from '../shared/RescueOrderGpsJourney';
+import MapSelectionModal from '../shared/MapSelectionModal';
 import { INITIAL_VEHICLE_GPS_DATA, type VehicleGpsStatus } from '../data/gpsTrackingMockData';
 
 const Section: React.FC<{
@@ -104,7 +106,7 @@ const Section: React.FC<{
   flush?: boolean;
   children: React.ReactNode;
 }> = ({ title, number, icon, rightNode, flush, children }) => (
-  <section className="overflow-hidden rounded-lg border bg-white shadow-sm mb-4">
+  <section className="relative rounded-lg border bg-white shadow-sm mb-4">
     <div className="flex items-center justify-between rounded-t-lg bg-[#00A859] px-4 py-2.5 text-sm font-bold text-white">
       <div className="flex items-center space-x-2">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px] font-black">
@@ -119,7 +121,7 @@ const Section: React.FC<{
 );
 
 const SubTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h3 className="mb-3 text-[11px] font-black uppercase tracking-widest text-gray-500">
+  <h3 className="mb-3 text-[11px] font-bold uppercase text-gray-600">
     {children}
   </h3>
 );
@@ -135,9 +137,19 @@ const Label: React.FC<{ children: React.ReactNode; required?: boolean }> = ({
 );
 
 const fieldControlClass = (locked: boolean) =>
-  `w-full border rounded px-3 py-1.5 text-xs outline-none focus:border-[#00A859] transition-all text-gray-800 ${
-    locked ? 'bg-gray-50 text-gray-600 cursor-default border-gray-200' : 'bg-white'
+  `w-full border rounded px-3 py-1.5 text-xs outline-none focus:border-[#00A859] transition-all placeholder:text-gray-400 disabled:cursor-not-allowed ${
+    locked ? 'bg-gray-50 text-gray-600 cursor-default border-gray-200' : 'bg-white text-gray-800'
   }`;
+
+const VEHICLE_SERVICES = [
+  'Xe hết pin',
+  'Kích bình ắc quy',
+  'Cẩu kéo xe tai nạn',
+  'Kéo xe ngập nước',
+  'Thay lốp dự phòng',
+  'Cẩu xe kẹt số P',
+  'Tiếp nhiên liệu',
+];
 
 const emptyDoc = { name: '', type: 'Đăng kiểm', number: '', issuedAt: '', expiryAt: '', fileName: '', fileUrl: '' };
 
@@ -202,27 +214,32 @@ const PartnerVehicleDetail: React.FC = () => {
   // Form edit fields
   const [editForm, setEditForm] = useState({
     plate: isCreate ? '' : (record?.plate ?? ''),
-    hnl: isCreate ? '' : String(record?.hnl ?? ''),
+    hnl: isCreate ? String(nextHnl(VEHICLES)) : String(record?.hnl ?? ''),
     brand: (isCreate ? 'Isuzu' : (record?.brand ?? 'Isuzu')) as VehicleRecord['brand'],
     modelLine: isCreate ? '' : (record?.modelLine ?? ''),
     chassis: isCreate ? '' : (record?.chassis ?? ''),
     engineNo: isCreate ? '' : (record?.engineNo ?? ''),
-    year: String(isCreate ? new Date().getFullYear() : (record?.year ?? new Date().getFullYear())),
+    year: isCreate ? '' : String(record?.year ?? ''),
     registrationDate: isCreate ? '' : (record?.registrationDate ?? ''),
     driverId: isCreate ? '' : (record?.driverId ?? ''),
     driverIds: isCreate ? [] : (record?.driverIds ?? (record?.driverId ? [record.driverId] : [])),
     stationId: isCreate ? 'tt-hm' : (record?.stationId ?? 'tt-hm'),
     type: (isCreate ? 'san_truot_cau' : (record?.type ?? 'san_truot_cau')) as VehicleRecord['type'],
-    loadCarry: isCreate ? '5 tấn' : (record?.loadCarry ?? '5 tấn'),
-    loadCrane: isCreate ? '8 tấn' : (record?.loadCrane ?? '8 tấn'),
-    loadLift: isCreate ? '—' : (record?.loadLift ?? '—'),
-    seats: isCreate ? '3' : (record?.seats ?? '3'),
+    loadCarry: isCreate ? '' : (record?.loadCarry ?? ''),
+    loadCrane: isCreate ? '' : (record?.loadCrane ?? ''),
+    loadLift: isCreate ? '' : (record?.loadLift ?? ''),
+    seats: isCreate ? '' : (record?.seats ?? ''),
     status: (isCreate ? 'READY' : (record?.status ?? (record?.runStatus === 'repair' ? 'MAINTENANCE' : 'READY'))) as VehicleRecord['status'],
     revenueMonth: isCreate ? 0 : (record?.revenueMonth ?? 48_500_000),
-    services: isCreate
-      ? ['Xe hết pin', 'Kích bình ắc quy', 'Cẩu kéo xe tai nạn']
-      : (record?.services ?? ['Xe hết pin', 'Kích bình ắc quy', 'Cẩu kéo xe tai nạn', 'Kéo xe ngập nước']),
+    services: isCreate ? [] : (record?.services ?? []),
   });
+  const [parkAddress, setParkAddress] = useState(isCreate ? '' : (record?.parkAddress ?? ''));
+  const [parkCoords, setParkCoords] = useState(isCreate ? '' : (record?.parkCoords ?? ''));
+  const [parkCopied, setParkCopied] = useState(false);
+  const [parkMapOpen, setParkMapOpen] = useState(false);
+  const [driverDropOpen, setDriverDropOpen] = useState(false);
+  const driverBtnRef = useRef<HTMLButtonElement>(null);
+  const [driverMenuPos, setDriverMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Modals state
   const [transferOpen, setTransferOpen] = useState(false);
@@ -306,24 +323,28 @@ const PartnerVehicleDetail: React.FC = () => {
       setRecord(undefined);
       setEditForm({
         plate: '',
+        hnl: String(nextHnl(VEHICLES)),
         brand: 'Isuzu',
         modelLine: '',
         chassis: '',
         engineNo: '',
-        year: String(new Date().getFullYear()),
+        year: '',
         registrationDate: '',
         driverId: '',
         driverIds: [],
         stationId: 'tt-hm',
         type: 'san_truot_cau',
-        loadCarry: '5 tấn',
-        loadCrane: '8 tấn',
-        loadLift: '—',
-        seats: '3',
+        loadCarry: '',
+        loadCrane: '',
+        loadLift: '',
+        seats: '',
         status: 'READY',
         revenueMonth: 0,
-        services: ['Xe hết pin', 'Kích bình ắc quy', 'Cẩu kéo xe tai nạn'],
+        services: [],
       });
+      setParkAddress('');
+      setParkCoords('');
+      setDriverDropOpen(false);
       setTools(toolsFor('san_truot_cau'));
       setDocs([]);
       setPhotos([]);
@@ -334,6 +355,7 @@ const PartnerVehicleDetail: React.FC = () => {
       if (found) {
         setEditForm({
           plate: found.plate,
+          hnl: String(found.hnl ?? ''),
           brand: found.brand,
           modelLine: found.modelLine,
           chassis: found.chassis,
@@ -358,9 +380,22 @@ const PartnerVehicleDetail: React.FC = () => {
         setHistory(VEHICLE_TRANSFER_HISTORY.filter((t) => t.vehicleId === found.id));
         setAuditLogs(VEHICLE_AUDIT_LOGS[found.id] ?? []);
         setPairings(VEHICLE_PAIRING_HISTORY[found.id] ?? []);
+        setParkAddress(found.parkAddress ?? '');
+        setParkCoords(found.parkCoords ?? '');
       }
     }
   }, [id, isCreate, isEditRoute]);
+
+  useEffect(() => {
+    if (!driverDropOpen) return;
+    const close = () => setDriverDropOpen(false);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [driverDropOpen]);
 
   const vehicle: VehicleRecord = record ?? {
     id: 'new',
@@ -525,7 +560,9 @@ const PartnerVehicleDetail: React.FC = () => {
 
     const patch: Partial<VehicleRecord> = {
       plate: editForm.plate.trim(),
-      hnl: editForm.hnl.trim().toUpperCase() || '—',
+      hnl: editForm.hnl.trim().toUpperCase() || String(vehicle.hnl ?? ''),
+      parkAddress: parkAddress.trim() || undefined,
+      parkCoords: parkCoords.trim() || undefined,
       brand: editForm.brand,
       modelLine: editForm.modelLine.trim() || '—',
       chassis: editForm.chassis.trim() || '—',
@@ -973,39 +1010,40 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* TOP BAR ACTION (Khớp ảnh 1.2 & 1.3 & SCR-04) */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="min-w-0">
           <button
             type="button"
             onClick={() => navigate('/partner/vehicles')}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-[#00A859] transition"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-[#00A859] transition"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={13} />
             <span>Danh sách phương tiện</span>
           </button>
-          <span className="text-gray-300">/</span>
-          <span className="text-xs font-bold text-gray-800">
-            {isCreate ? 'Thêm mới xe cứu hộ' : editing ? `Cập nhật: ${vehicle.plate}` : `Chi tiết: ${vehicle.plate}`}
-          </span>
+          <h1 className="mt-0.5 text-base font-black leading-tight text-gray-900">
+            {isCreate ? 'Thêm mới xe cứu hộ' : editing ? `Cập nhật ${vehicle.plate}` : `Chi tiết ${vehicle.plate}`}
+          </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Tình trạng */}
-          {isCreate ? (
-            <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm text-xs">
-              <span className="text-gray-600 text-[11px] font-bold">Tình trạng:</span>
-              <select
-                value={editForm.status}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, status: e.target.value as VehicleRecord['status'] })
-                }
-                className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs font-semibold text-gray-800 focus:border-[#00A859] focus:outline-none"
-              >
-                <option value="READY">Sẵn sàng</option>
-                <option value="MAINTENANCE">Đang sửa chữa</option>
-              </select>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm text-xs">
+          {!isCreate && (
+            <button
+              type="button"
+              disabled={!canChangeStatus}
+              onClick={() => {
+                if (!canChangeStatus) return;
+                setTargetStatus(
+                  (vehicle.status ?? (vehicle.runStatus === 'repair' ? 'MAINTENANCE' : 'READY')) as
+                    | 'READY'
+                    | 'STOPPED'
+                    | 'MAINTENANCE'
+                );
+                setStatusOpen(true);
+              }}
+              title={canChangeStatus ? 'Đổi trạng thái' : undefined}
+              className={`flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm text-xs ${
+                canChangeStatus ? 'hover:border-[#00A859] hover:bg-emerald-50/40 cursor-pointer' : 'cursor-default'
+              }`}
+            >
               <span className="text-gray-500 text-[11px] font-bold">Tình trạng:</span>
               <span
                 className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black ${
@@ -1030,7 +1068,7 @@ const PartnerVehicleDetail: React.FC = () => {
                   ? 'Đang làm đơn'
                   : 'Ngừng hoạt động'}
               </span>
-            </div>
+            </button>
           )}
 
           {/* Các nút hành động */}
@@ -1041,10 +1079,10 @@ const PartnerVehicleDetail: React.FC = () => {
               <button
                 type="button"
                 onClick={handleStartEdit}
-                className="flex items-center gap-1.5 border border-[#00A859] bg-white text-[#00A859] px-3.5 py-2 rounded-lg font-bold text-xs hover:bg-green-50 transition shadow-sm uppercase"
+                title="Cập nhật"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#00A859] bg-white text-[#00A859] hover:bg-green-50 transition shadow-sm"
               >
-                <Pencil size={14} />
-                <span>Cập nhật</span>
+                <Pencil size={15} />
               </button>
               )}
 
@@ -1052,29 +1090,10 @@ const PartnerVehicleDetail: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setTransferOpen(true)}
-                className="flex items-center gap-1.5 bg-[#00A859] text-white px-3.5 py-2 rounded-lg font-bold text-xs hover:bg-green-700 transition shadow-sm uppercase"
+                title="Điều chuyển"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#00A859] text-white hover:bg-green-700 transition shadow-sm"
               >
-                <ArrowRightLeft size={14} />
-                <span>Điều chuyển</span>
-              </button>
-              )}
-
-              {canChangeStatus && (
-              <button
-                type="button"
-                onClick={() => {
-                  setTargetStatus(
-                    (vehicle.status ?? (vehicle.runStatus === 'repair' ? 'MAINTENANCE' : 'READY')) as
-                      | 'READY'
-                      | 'STOPPED'
-                      | 'MAINTENANCE'
-                  );
-                  setStatusOpen(true);
-                }}
-                className="flex items-center gap-1.5 border border-gray-300 bg-white text-gray-700 px-3 py-2 rounded-lg font-bold text-xs hover:bg-gray-50 transition shadow-sm"
-              >
-                <Clock size={14} />
-                <span>Đổi trạng thái</span>
+                <ArrowRightLeft size={15} />
               </button>
               )}
 
@@ -1082,10 +1101,10 @@ const PartnerVehicleDetail: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setInactivateOpen(true)}
-                  className="flex items-center gap-1.5 border border-red-300 bg-white text-red-600 px-3 py-2 rounded-lg font-bold text-xs hover:bg-red-50 transition shadow-sm"
+                  title="Ngừng hoạt động"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300 bg-white text-red-600 hover:bg-red-50 transition shadow-sm"
                 >
-                  <Ban size={14} />
-                  <span>Ngừng hoạt động</span>
+                  <Ban size={15} />
                 </button>
               )}
             </div>
@@ -1120,22 +1139,14 @@ const PartnerVehicleDetail: React.FC = () => {
           <ul className="list-disc pl-5 space-y-0.5">{formErrors.map((er) => <li key={er}>{er}</li>)}</ul>
         </div>
       )}
-      {/* Banner chú ý khi ở chế độ thêm mới hoặc sửa */}
-      {isCreate ? (
-          <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs text-emerald-900 flex items-center gap-2">
-            <Info size={15} className="text-emerald-600 shrink-0" />
-            <span>
-              Khai báo thông số kỹ thuật xe cứu hộ, chọn trạm quản lý và đính kèm giấy tờ ban đầu. Mã xe có thể nhập tay hoặc để trống hệ thống tự sinh theo quy định (BR-16).
-            </span>
-          </div>
-        ) : editing ? (
+      {editing && !isCreate && (
           <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 px-3.5 py-2 text-xs text-blue-900 flex items-center gap-2">
             <Info size={15} className="text-blue-600 shrink-0" />
             <span>
               Đang sửa trên màn chi tiết. Trạm không đổi tại đây — đổi trạm dùng Điều chuyển.
             </span>
           </div>
-        ) : null}
+        )}
 
       <Section
         title="Thông tin xe"
@@ -1161,9 +1172,14 @@ const PartnerVehicleDetail: React.FC = () => {
               type="text"
               value={editing ? editForm.plate : vehicle.plate}
               readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, plate: e.target.value })}
-              className={fieldControlClass(!editing)}
-              placeholder="VD: 29C-123.45"
+              onChange={(e) =>
+                setEditForm({
+                  ...editForm,
+                  plate: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                })
+              }
+              className={`${fieldControlClass(!editing)} uppercase`}
+              placeholder="VD 29C12345"
             />
           </div>
           {/* CỘT 2 */}
@@ -1172,11 +1188,10 @@ const PartnerVehicleDetail: React.FC = () => {
             <input
               type="text"
               value={editing ? editForm.hnl : String(vehicle.hnl ?? '—')}
-              readOnly={!editing}
-              maxLength={30}
-              placeholder="Mã số dán trên xe"
-              onChange={(e) => setEditForm({ ...editForm, hnl: e.target.value })}
-              className={fieldControlClass(!editing)}
+              readOnly
+              disabled
+              placeholder="Hệ thống tự sinh"
+              className={fieldControlClass(true)}
             />
           </div>
           {/* CỘT 4 */}
@@ -1221,19 +1236,37 @@ const PartnerVehicleDetail: React.FC = () => {
               readOnly={!editing}
               onChange={(e) => setEditForm({ ...editForm, year: e.target.value })}
               className={fieldControlClass(!editing)}
+              placeholder="VD: 2022"
             />
           </div>
           {/* Ngày đăng ký (FL-M1-01 UI-47, VAL-17) */}
           <div>
             <Label>Ngày đăng ký</Label>
-            <input
-              type="text"
-              value={editing ? editForm.registrationDate : (vehicle.registrationDate || '—')}
-              readOnly={!editing}
-              onChange={(e) => setEditForm({ ...editForm, registrationDate: e.target.value })}
-              className={fieldControlClass(!editing)}
-              placeholder="dd/mm/yyyy"
-            />
+            {editing ? (
+              <input
+                type="date"
+                value={(() => {
+                  const m = editForm.registrationDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+                })()}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => {
+                  const m = e.target.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                  setEditForm({
+                    ...editForm,
+                    registrationDate: m ? `${m[3]}/${m[2]}/${m[1]}` : '',
+                  });
+                }}
+                className={fieldControlClass(false)}
+              />
+            ) : (
+              <input
+                type="text"
+                value={vehicle.registrationDate || '—'}
+                readOnly
+                className={fieldControlClass(true)}
+              />
+            )}
           </div>
           {/* CỘT 3 */}
           <div>
@@ -1244,6 +1277,7 @@ const PartnerVehicleDetail: React.FC = () => {
               readOnly={!editing}
               onChange={(e) => setEditForm({ ...editForm, chassis: e.target.value })}
               className={fieldControlClass(!editing)}
+              placeholder="VD: JALC4B16X07001234"
             />
           </div>
           {/* CỘT 4 */}
@@ -1255,6 +1289,7 @@ const PartnerVehicleDetail: React.FC = () => {
               readOnly={!editing}
               onChange={(e) => setEditForm({ ...editForm, engineNo: e.target.value })}
               className={fieldControlClass(!editing)}
+              placeholder="VD: 4HK1-123456"
             />
           </div>
         </div>
@@ -1336,37 +1371,37 @@ const PartnerVehicleDetail: React.FC = () => {
               readOnly={!editing}
               onChange={(e) => setEditForm({ ...editForm, loadLift: e.target.value })}
               className={fieldControlClass(!editing)}
-              placeholder="VD: 3 tấn hoặc —"
+              placeholder="VD: 3 tấn"
             />
           </div>
         </div>
         <div className="mt-6 pt-4 border-t border-gray-100">
           <SubTitle>Dịch vụ đáp ứng</SubTitle>
           {editing ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              {[
-                'Xe hết pin',
-                'Kích bình ắc quy',
-                'Cẩu kéo xe tai nạn',
-                'Kéo xe ngập nước',
-                'Thay lốp dự phòng',
-                'Cẩu xe kẹt số P',
-                'Tiếp nhiên liệu',
-              ].map((srv) => (
-                <label key={srv} className="flex items-center gap-2 cursor-pointer text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={editForm.services?.includes(srv)}
-                    onChange={(e) => {
-                      const cur = editForm.services ?? [];
-                      if (e.target.checked) setEditForm({ ...editForm, services: [...cur, srv] });
-                      else setEditForm({ ...editForm, services: cur.filter((s) => s !== srv) });
-                    }}
-                    className="accent-[#00A859]"
-                  />
-                  <span>{srv}</span>
-                </label>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {VEHICLE_SERVICES.map((srv) => {
+                const checked = editForm.services?.includes(srv);
+                return (
+                  <label
+                    key={srv}
+                    className={`flex items-center gap-3 rounded-lg border bg-white px-3 py-2.5 text-sm cursor-pointer transition ${
+                      checked ? 'border-[#00A859] bg-emerald-50/40' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!checked}
+                      onChange={(e) => {
+                        const cur = editForm.services ?? [];
+                        if (e.target.checked) setEditForm({ ...editForm, services: [...cur, srv] });
+                        else setEditForm({ ...editForm, services: cur.filter((s) => s !== srv) });
+                      }}
+                      className="h-4 w-4 shrink-0 rounded border-gray-300 accent-[#00A859]"
+                    />
+                    <span className="text-gray-800">{srv}</span>
+                  </label>
+                );
+              })}
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -1394,8 +1429,14 @@ const PartnerVehicleDetail: React.FC = () => {
             {isCreate ? (
               <select
                 value={editForm.stationId}
-                onChange={(e) => setEditForm({ ...editForm, stationId: e.target.value })}
-                className={fieldControlClass(false)}
+                onChange={(e) => {
+                  const stationId = e.target.value;
+                  const allowed = new Set(driversAtStation(stationId).map((d) => d.id));
+                  const driverIds = editForm.driverIds.filter((driverId) => allowed.has(driverId));
+                  setDriverDropOpen(false);
+                  setEditForm({ ...editForm, stationId, driverIds, driverId: driverIds[0] ?? '' });
+                }}
+                className={`${fieldControlClass(false)} h-[34px]`}
               >
                 {STATION_OPTIONS.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -1404,119 +1445,157 @@ const PartnerVehicleDetail: React.FC = () => {
                 ))}
               </select>
             ) : (
-              <input
-                type="text"
-                value={orgName(vehicle.stationId)}
-                readOnly
-                className={fieldControlClass(true)}
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={orgName(vehicle.stationId)}
+                  readOnly
+                  className={fieldControlClass(true)}
+                />
+                {!editing && canTransferVehicle && (
+                  <button
+                    type="button"
+                    onClick={() => setTransferOpen(true)}
+                    className="inline-flex h-[30px] shrink-0 items-center gap-1 rounded-md border border-[#00A859] bg-white px-2.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
+                  >
+                    <ArrowRightLeft size={12} />
+                    Điều chuyển
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <div className="lg:col-span-3">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
-                <Label>Tài xế chịu trách nhiệm</Label>
-                <span className="text-[10px] text-gray-500 font-semibold bg-gray-100 px-1.5 py-0.2 rounded border border-gray-200">
-                  {currentDrivers.length} tài xế
-                </span>
+            <Label>Tài xế chịu trách nhiệm</Label>
+
+            {editing && isCreate ? (
+              <div>
+                <button
+                  ref={driverBtnRef}
+                  type="button"
+                  onClick={() => {
+                    if (driverDropOpen) {
+                      setDriverDropOpen(false);
+                      return;
+                    }
+                    const rect = driverBtnRef.current?.getBoundingClientRect();
+                    if (!rect) return;
+                    setDriverMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+                    setDriverDropOpen(true);
+                  }}
+                  className={`${fieldControlClass(false)} flex h-[34px] items-center justify-between gap-2 text-left`}
+                >
+                  <span className="flex min-w-0 flex-wrap gap-1">
+                    {editForm.driverIds.length === 0 ? (
+                      <span className="text-gray-400">Chọn tài xế</span>
+                    ) : (
+                      driversAtStation(editForm.stationId)
+                        .filter((d) => editForm.driverIds.includes(d.id))
+                        .map((d) => (
+                          <span
+                            key={d.id}
+                            className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-800"
+                          >
+                            {d.fullname}
+                          </span>
+                        ))
+                    )}
+                  </span>
+                  <ChevronDown size={14} className={`shrink-0 text-gray-400 transition ${driverDropOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {driverDropOpen && driverMenuPos && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Đóng danh sách tài xế"
+                      className="fixed inset-0 z-[70] cursor-default"
+                      onClick={() => setDriverDropOpen(false)}
+                    />
+                    <div
+                      className="fixed z-[80] max-h-52 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg"
+                      style={{ top: driverMenuPos.top, left: driverMenuPos.left, width: driverMenuPos.width }}
+                    >
+                      {driversAtStation(editForm.stationId).length === 0 ? (
+                        <p className="px-2 py-2 text-xs italic text-gray-400">Trạm này chưa có tài xế nào</p>
+                      ) : (
+                        driversAtStation(editForm.stationId).map((d) => {
+                          const checked = editForm.driverIds.includes(d.id);
+                          return (
+                            <label key={d.id} className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-50">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const nextIds = e.target.checked
+                                      ? [...editForm.driverIds, d.id]
+                                      : editForm.driverIds.filter((driverId) => driverId !== d.id);
+                                    setEditForm({ ...editForm, driverIds: nextIds, driverId: nextIds[0] ?? '' });
+                                  }}
+                                  className="h-4 w-4 shrink-0 rounded accent-[#00A859]"
+                                />
+                                <span className="font-medium text-gray-800">{d.fullname}</span>
+                                <span className="tabular-nums text-[11px] text-gray-500">{d.phone}</span>
+                              </span>
+                              <span className="shrink-0 text-[10px] text-gray-400">
+                                Bằng {d.licenseType}{d.craneCert ? ' · Cẩu' : ''}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
-              {!editing && canPair && (
-                <div className="flex items-center gap-2">
+            ) : (
+              /* Khi xem chi tiết hoặc khi cập nhật (editing && !isCreate): Read-only danh sách tài xế */
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1 space-y-1">
+                  {currentDrivers.length === 0 ? (
+                    <p className="text-xs italic text-gray-400">Chưa gán tài xế nào</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {currentDrivers.map((d) => (
+                        <span
+                          key={d.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        >
+                          <span>{d.fullname}</span>
+                          <span className="font-medium tabular-nums text-emerald-700/80">{d.phone}</span>
+                          {!editing && canPair && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSingleDriver(d.id)}
+                              className="text-emerald-700/70 hover:text-red-500"
+                              title={`Hủy ghép tài xế ${d.fullname}`}
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {editing && !isCreate && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50/80 px-2.5 py-1 rounded border border-amber-200/60 font-medium">
+                      <Lock size={12} className="shrink-0 text-amber-600" />
+                      <span>Không cho phép sửa tài xế chịu trách nhiệm khi cập nhật xe.</span>
+                    </div>
+                  )}
+                </div>
+                {!editing && canPair && (
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedDriverIdsForPair([...assignedDriverIds]);
                       setPairModalOpen(true);
                     }}
-                    className="text-[10px] font-bold text-[#00A859] hover:underline flex items-center gap-1"
+                    className="inline-flex h-[30px] shrink-0 items-center gap-1 rounded-md border border-[#00A859] bg-white px-2.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
                   >
-                    <UserPlus size={12} /> Ghép / Đổi tài xế
+                    <Pencil size={12} />
+                    Cập nhật
                   </button>
-                  {assignedDriverIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedDriverIdsToUnpair([...assignedDriverIds]);
-                        setUnpairModalOpen(true);
-                      }}
-                      className="text-[10px] font-bold text-red-500 hover:underline flex items-center gap-1"
-                    >
-                      <UserMinus size={12} /> Hủy ghép
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {editing && isCreate ? (
-              /* Khi tạo mới: Chọn nhiều tài xế bằng Checkbox list */
-              <div className="rounded border border-gray-200 p-2 bg-white space-y-1.5 max-h-36 overflow-y-auto">
-                {driversAtStation(editForm.stationId).length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">Trạm này chưa có tài xế nào</p>
-                ) : (
-                  driversAtStation(editForm.stationId).map((d) => {
-                    const checked = editForm.driverIds.includes(d.id);
-                    return (
-                      <label key={d.id} className="flex items-center justify-between p-1 rounded hover:bg-gray-50 cursor-pointer text-xs">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              const nextIds = e.target.checked
-                                ? [...editForm.driverIds, d.id]
-                                : editForm.driverIds.filter((id) => id !== d.id);
-                              setEditForm({ ...editForm, driverIds: nextIds, driverId: nextIds[0] ?? '' });
-                            }}
-                            className="accent-[#00A859] rounded"
-                          />
-                          <span className="font-medium text-gray-800">{d.fullname}</span>
-                          <span className="text-[11px] text-gray-500 font-mono">({d.phone})</span>
-                        </div>
-                        <span className="text-[10px] text-gray-400">
-                          Bằng {d.licenseType} {d.craneCert ? '· Cẩu' : ''}
-                        </span>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            ) : (
-              /* Khi xem chi tiết hoặc khi cập nhật (editing && !isCreate): Read-only danh sách tài xế */
-              <div className="space-y-1.5">
-                {currentDrivers.length === 0 ? (
-                  <div className={`${fieldControlClass(true)} text-gray-400 italic bg-gray-50`}>
-                    Chưa gán tài xế nào
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5 p-1.5 rounded border border-gray-200 bg-gray-50 min-h-[34px] items-center">
-                    {currentDrivers.map((d) => (
-                      <span
-                        key={d.id}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-emerald-800 border border-emerald-300 shadow-xs"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span className="font-bold">{d.fullname}</span>
-                        <span className="text-[11px] text-gray-500 font-mono">({d.phone})</span>
-                        {!editing && canPair && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveSingleDriver(d.id)}
-                            className="text-gray-400 hover:text-red-500 ml-1 p-0.5 transition rounded-full hover:bg-red-50"
-                            title={`Hủy ghép tài xế ${d.fullname}`}
-                          >
-                            <X size={12} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {editing && !isCreate && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50/80 px-2.5 py-1 rounded border border-amber-200/60 font-medium">
-                    <Lock size={12} className="shrink-0 text-amber-600" />
-                    <span>Không cho phép sửa tài xế chịu trách nhiệm khi cập nhật xe.</span>
-                  </div>
                 )}
               </div>
             )}
@@ -1524,66 +1603,7 @@ const PartnerVehicleDetail: React.FC = () => {
         </div>
       </Section>
 
-      <Section title="Thiết bị theo dõi" number={4} icon={<Radio size={16} />}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <Label>Thiết bị GPS (IMEI)</Label>
-              {!isCreate && (
-                <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Mới · 2p trước
-                </span>
-              )}
-            </div>
-            <input
-              type="text"
-              value={isCreate ? 'Tự nhận sau khi liên kết MID' : '861200034567345'}
-              readOnly
-              className={`${fieldControlClass(true)} font-mono text-gray-800 font-semibold`}
-            />
-          </div>
-
-          {/* CỘT 2: Số km đã chạy (từ MID) */}
-          <div>
-            <Label>Số km đã chạy (MID)</Label>
-            <input
-              type="text"
-              value={isCreate ? '—' : '14.280 km'}
-              readOnly
-              className={`${fieldControlClass(true)} font-semibold text-gray-800`}
-            />
-          </div>
-
-          {/* CỘT 3: Camera hành trình trước xe (Chiếm 2 cột) */}
-          <div className="md:col-span-2 lg:col-span-2">
-            <div className="flex items-center justify-between mb-1">
-              <Label>Camera trước (FL-M6-06)</Label>
-              {!isCreate && (
-                <span className={`text-[10px] font-bold flex items-center gap-1 ${cameraConnStatus === 'CONNECTED' ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {cameraConnStatus === 'CONNECTED' ? (
-                    <>
-                      <Wifi size={11} /> Kết nối tốt
-                    </>
-                  ) : (
-                    <>
-                      <WifiOff size={11} /> Mất kết nối
-                    </>
-                  )}
-                </span>
-              )}
-            </div>
-            <input
-              type="text"
-              value={isCreate ? 'Chưa cấu hình' : (cameraConnStatus === 'CONNECTED' ? 'CAM-F012 · Full HD 1080p' : 'CAM-F012 (Mất tín hiệu)')}
-              readOnly
-              className={`${fieldControlClass(true)} font-medium ${cameraConnStatus === 'CONNECTED' ? 'text-gray-800' : 'text-red-500'}`}
-            />
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Hình ảnh" number={5} icon={<ImageIcon size={16} />}>
+      <Section title="Hình ảnh" number={4} icon={<ImageIcon size={16} />}>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {(['Góc trước', 'Góc sau', 'Bên trái', 'Bên phải'] as const).map((slotLabel) => {
               const photo = photos.find((p) => p.label === slotLabel);
@@ -1661,23 +1681,8 @@ const PartnerVehicleDetail: React.FC = () => {
 
       <Section
         title="Giấy tờ"
-        number={6}
+        number={5}
         icon={<FileText size={16} />}
-        rightNode={
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-white/80">{docs.length} tài liệu</span>
-            {editing && (
-              <button
-                type="button"
-                onClick={handleOpenAddDoc}
-                className="inline-flex items-center gap-1.5 bg-white text-[#00A859] px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-50 transition"
-              >
-                <Plus size={14} />
-                <span>Đính kèm</span>
-              </button>
-            )}
-          </div>
-        }
       >
         <div className="space-y-3">
               <div className="overflow-x-auto rounded-lg border border-gray-100">
@@ -1700,7 +1705,7 @@ const PartnerVehicleDetail: React.FC = () => {
                           <div className="font-bold text-gray-800">{d.name}</div>
                           <div className="text-[10px] text-gray-400">{d.type}{REQUIRED_VEHICLE_DOCS.includes(d.type) ? ' · bắt buộc' : ' · tùy chọn'}</div>
                         </td>
-                        <td className="px-3 py-2.5 border-r font-mono text-gray-700">{d.number || '—'}</td>
+                        <td className="px-3 py-2.5 border-r tabular-nums text-gray-700">{d.number || '—'}</td>
                         <td className="px-3 py-2.5 border-r text-gray-700 font-medium">
                           {d.issuedAt || '—'}
                         </td>
@@ -1766,17 +1771,17 @@ const PartnerVehicleDetail: React.FC = () => {
 
                     {/* Dòng thiếu giấy tờ bắt buộc theo BR-18 */}
                     {REQUIRED_VEHICLE_DOCS.filter((reqType) => !docs.some((d) => d.type === reqType)).map((mType) => (
-                      <tr key={`missing-${mType}`} className="bg-red-50/40">
+                      <tr key={`missing-${mType}`} className="bg-gray-50">
                         <td className="px-3 py-2.5 border-r">
-                          <div className="font-bold text-gray-600">{mType}</div>
-                          <div className="text-[10px] text-red-600 font-semibold">Giấy tờ bắt buộc</div>
+                          <div className="font-semibold text-gray-500">{mType}</div>
+                          <div className="text-[10px] text-gray-400">Chưa có giấy tờ</div>
                         </td>
-                        <td className="px-3 py-2.5 border-r text-gray-400 font-mono">—</td>
+                        <td className="px-3 py-2.5 border-r text-gray-400 tabular-nums">—</td>
                         <td className="px-3 py-2.5 border-r text-gray-400">—</td>
                         <td className="px-3 py-2.5 border-r text-gray-400">—</td>
                         <td className="px-3 py-2.5 border-r">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
-                            Thiếu {mType}
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 border border-gray-200">
+                            Chưa có
                           </span>
                         </td>
                         <td className="px-3 py-2.5 border-r text-gray-400">—</td>
@@ -1798,16 +1803,83 @@ const PartnerVehicleDetail: React.FC = () => {
                         )}
                       </tr>
                     ))}
-                    {docs.length === 0 && (
-                      <tr>
-                        <td colSpan={editing ? 6 : 5} className="py-6 text-center text-gray-400">
-                          Chưa có giấy tờ đính kèm
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
+        </div>
+      </Section>
+
+      <Section title="Thiết bị theo dõi" number={6} icon={<Radio size={16} />}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <Label>Thiết bị GPS (IMEI)</Label>
+            <input
+              type="text"
+              value={isCreate ? '' : '861200034567345'}
+              readOnly
+              disabled
+              placeholder="Tự nhận sau khi liên kết"
+              className={`${fieldControlClass(true)} tabular-nums`}
+            />
+          </div>
+          <div>
+            <Label>Số km đã chạy (MID)</Label>
+            <input
+              type="text"
+              value={isCreate ? '' : '14.280 km'}
+              readOnly
+              disabled
+              placeholder="Chưa có dữ liệu"
+              className={fieldControlClass(true)}
+            />
+          </div>
+          <div>
+            <Label>Camera hành trình</Label>
+            <input
+              type="text"
+              value={isCreate ? '' : (cameraConnStatus === 'CONNECTED' ? 'CAM-F012 · Full HD 1080p' : 'CAM-F012 (Mất tín hiệu)')}
+              readOnly
+              disabled
+              placeholder="Chưa cấu hình"
+              className={`${fieldControlClass(true)} ${!isCreate && cameraConnStatus !== 'CONNECTED' ? 'text-red-500' : ''}`}
+            />
+          </div>
+          <div>
+            <Label>Vị trí đặt xe</Label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={parkAddress}
+                readOnly
+                placeholder="Chọn vị trí trên bản đồ"
+                className={fieldControlClass(true)}
+              />
+              <button
+                type="button"
+                title={parkCopied ? 'Đã sao chép' : 'Sao chép vị trí'}
+                disabled={!parkCoords}
+                onClick={() => {
+                  if (!parkCoords) return;
+                  navigator.clipboard.writeText(parkCoords);
+                  setParkCopied(true);
+                  window.setTimeout(() => setParkCopied(false), 1500);
+                }}
+                className="inline-flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded border border-gray-200 bg-white text-gray-600 hover:border-[#00A859] hover:text-[#00A859] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {parkCopied ? <Check size={14} className="text-[#00A859]" /> : <Copy size={14} />}
+              </button>
+              {editing && (
+                <button
+                  type="button"
+                  onClick={() => setParkMapOpen(true)}
+                  className="inline-flex h-[30px] shrink-0 items-center gap-1 rounded border border-[#00A859] bg-white px-2.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
+                >
+                  <MapPin size={13} />
+                  Bản đồ
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </Section>
 
@@ -1829,7 +1901,7 @@ const PartnerVehicleDetail: React.FC = () => {
                 }`}
               >
                 <MapPin size={13} />
-                <span>Bản đồ hành trình (GPS MID)</span>
+                <span>Vị trí</span>
               </button>
               <button
                 type="button"
@@ -1841,7 +1913,7 @@ const PartnerVehicleDetail: React.FC = () => {
                 }`}
               >
                 <Camera size={13} />
-                <span>Camera trước xe (FL-M6-06)</span>
+                <span>Camera</span>
               </button>
             </div>
           )}
@@ -1856,7 +1928,7 @@ const PartnerVehicleDetail: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 font-semibold">Thiết bị:</span>
-                    <strong className="text-gray-800 font-mono">CAM-F012 (VietMap MDVR)</strong>
+                    <strong className="text-gray-800 tabular-nums">CAM-F012 (VietMap MDVR)</strong>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-gray-500 font-semibold">Tình trạng:</span>
@@ -1963,14 +2035,14 @@ const PartnerVehicleDetail: React.FC = () => {
                                 <span>{clip.title}</span>
                               </div>
                             </td>
-                            <td className="px-3 py-2.5 border-r font-mono font-bold text-blue-600">
+                            <td className="px-3 py-2.5 border-r tabular-nums font-bold text-blue-600">
                               {clip.orderCode !== '—' ? (
                                 <span className="hover:underline cursor-pointer">{clip.orderCode}</span>
                               ) : (
                                 <span className="text-gray-400">—</span>
                               )}
                             </td>
-                            <td className="px-3 py-2.5 border-r font-mono text-gray-600">
+                            <td className="px-3 py-2.5 border-r tabular-nums text-gray-600">
                               {clip.startTime} – {clip.endTime}
                             </td>
                             <td className="px-3 py-2.5 border-r text-center text-gray-700 font-medium">
@@ -2040,7 +2112,7 @@ const PartnerVehicleDetail: React.FC = () => {
               {/* Mock Road View Canvas */}
               <div className="absolute inset-0 bg-gradient-to-b from-sky-900/40 via-gray-900 to-gray-950 flex flex-col justify-between p-6">
                 {/* On-screen Watermark HUD (Khớp camera thực tế) */}
-                <div className="flex items-start justify-between font-mono text-[11px] text-green-400 drop-shadow-md">
+                <div className="flex items-start justify-between tabular-nums text-[11px] text-green-400 drop-shadow-md">
                   <div>
                     <div className="font-bold text-white tracking-wider">CAM-F012 · {vehicle.plate}</div>
                     <div>2026-10-03 08:22:15 UTC+7</div>
@@ -2057,11 +2129,11 @@ const PartnerVehicleDetail: React.FC = () => {
                     <Truck size={30} className="text-[#00A859]" />
                   </div>
                   <div className="text-xs text-gray-300 font-medium">Đang phát lại video hành trình thực tế</div>
-                  <div className="text-[10px] text-gray-500 font-mono mt-1">Độ phân giải 1920x1080 @ 30fps · H.264 Audio AAC</div>
+                  <div className="text-[10px] text-gray-500 tabular-nums mt-1">Độ phân giải 1920x1080 @ 30fps · H.264 Audio AAC</div>
                 </div>
 
                 {/* Bottom on-screen tags */}
-                <div className="flex items-center justify-between text-[11px] font-mono text-gray-300">
+                <div className="flex items-center justify-between text-[11px] tabular-nums text-gray-300">
                   <span className="bg-black/60 px-2 py-0.5 rounded text-emerald-400">REC ● [GPS MATCHED]</span>
                   <span className="bg-black/60 px-2 py-0.5 rounded">Tốc độ phát: {clipSpeed}x</span>
                 </div>
@@ -2084,7 +2156,7 @@ const PartnerVehicleDetail: React.FC = () => {
             {/* Video Controls Bar */}
             <div className="p-3.5 bg-gray-800 space-y-2 border-t border-gray-700">
               {/* Progress Scrubber */}
-              <div className="flex items-center gap-3 text-xs font-mono text-gray-300">
+              <div className="flex items-center gap-3 text-xs tabular-nums text-gray-300">
                 <span>06:48</span>
                 <div className="flex-1 h-1.5 bg-gray-700 rounded-full relative cursor-pointer overflow-hidden">
                   <div className="absolute top-0 bottom-0 left-0 bg-[#00A859] w-[38%]" />
@@ -2156,24 +2228,14 @@ const PartnerVehicleDetail: React.FC = () => {
           </div>
 
           {/* Alert cảnh báo công cụ chưa đạt & thiếu cho dịch vụ (UI-T21, BR-T05) */}
-          {(brokenTools.length > 0 || missingForServices.length > 0) && (
-            <div className="mb-4 space-y-2">
-              {brokenTools.length > 0 && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-800 flex items-center gap-2">
-                  <AlertCircle size={15} className="text-red-600 shrink-0" />
-                  <span>
-                    Công cụ chưa đạt: {brokenTools.map((t) => `${t.name} (${toolQtyOf(t)}/${standardQtyOf(t.name)} · ${toolConditionOf(t) === 'BROKEN' ? 'Hỏng' : 'Thiếu'}${t.note ? ` - "${t.note}"` : ''})`).join(', ')}
-                  </span>
-                </div>
-              )}
-              {missingForServices.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 flex items-center gap-2">
-                  <AlertTriangle size={15} className="text-amber-600 shrink-0" />
-                  <span>
-                    Thiếu cho dịch vụ: {missingForServices.join('; ')}
-                  </span>
-                </div>
-              )}
+          {missingForServices.length > 0 && (
+            <div className="mb-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 flex items-center gap-2">
+                <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                <span>
+                  Thiếu cho dịch vụ: {missingForServices.join('; ')}
+                </span>
+              </div>
             </div>
           )}
 
@@ -2273,7 +2335,7 @@ const PartnerVehicleDetail: React.FC = () => {
                 <tbody className="divide-y divide-gray-100">
                   {shownAuditLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="px-3 py-2.5 border-r text-gray-600 font-mono">{log.actedAt}</td>
+                      <td className="px-3 py-2.5 border-r text-gray-600 tabular-nums">{log.actedAt}</td>
                       <td className="px-3 py-2.5 border-r">
                         <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
                           {log.actionCode === 'RESCUE'
@@ -2847,7 +2909,7 @@ const PartnerVehicleDetail: React.FC = () => {
                         <div className="min-w-0">
                           <div className="font-bold text-gray-800 flex items-center gap-2">
                             <span>{d.fullname}</span>
-                            <span className="text-[11px] font-mono text-gray-500">({d.phone})</span>
+                            <span className="text-[11px] tabular-nums text-gray-500">({d.phone})</span>
                           </div>
                           <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
                             <span>Bằng {d.licenseType}</span>
@@ -2958,7 +3020,7 @@ const PartnerVehicleDetail: React.FC = () => {
                       className="accent-red-500 rounded"
                     />
                     <span className="font-bold text-gray-800">{drv.fullname}</span>
-                    <span className="text-gray-500 font-mono">({drv.phone})</span>
+                    <span className="text-gray-500 tabular-nums">({drv.phone})</span>
                   </div>
                   <span className="text-[10px] text-gray-400">Bằng {drv.licenseType}</span>
                 </label>
@@ -3003,6 +3065,7 @@ const PartnerVehicleDetail: React.FC = () => {
         open={toolModalOpen}
         title={`Cập nhật công cụ theo xe — ${vehicle.plate}`}
         icon={<Wrench size={20} />}
+        xl
         onClose={() => setToolModalOpen(false)}
         footer={(
           <>
@@ -3119,7 +3182,7 @@ const PartnerVehicleDetail: React.FC = () => {
                           className="w-14 rounded border border-gray-200 px-2 py-1 text-center text-xs font-bold"
                         />
                       </td>
-                      <td className="p-2 text-center font-mono font-semibold text-gray-700 whitespace-nowrap">
+                      <td className="p-2 text-center tabular-nums font-semibold text-gray-700 whitespace-nowrap">
                         {standardQtyOf(t.name)} {t.unit ?? 'cái'}
                       </td>
                       <td className="p-2 text-center">
@@ -3435,6 +3498,20 @@ const PartnerVehicleDetail: React.FC = () => {
           </div>
         )}
       </PartnerModal>
+
+      <MapSelectionModal
+        isOpen={parkMapOpen}
+        onClose={() => setParkMapOpen(false)}
+        onConfirm={(address, coords) => {
+          setParkAddress(address);
+          setParkCoords(coords);
+          setParkMapOpen(false);
+        }}
+        initialAddress={parkAddress}
+        initialCoords={parkCoords}
+        title="Chọn vị trí đặt xe"
+        pinLabel="Vị trí đặt xe tại đây"
+      />
     </div>
   );
 };

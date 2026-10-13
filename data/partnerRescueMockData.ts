@@ -134,8 +134,11 @@ export const IMEI_OPTIONS = [
 export interface VehicleRecord {
   id: string;
   plate: string;
-  /** Mã xe: mã số dán trên xe (trước gọi Mã HNL), nhập tay, sửa được */
+  /** Mã xe do hệ thống tự sinh, không cho nhập tay */
   hnl: number | string;
+  /** Vị trí đỗ xe, chọn trên bản đồ */
+  parkAddress?: string;
+  parkCoords?: string;
   imei?: string;
   brand: 'Isuzu' | 'Hino' | 'Dongfeng';
   modelLine: string;

@@ -242,29 +242,22 @@ const RescueOrderGpsJourney: React.FC<RescueOrderGpsJourneyProps> = ({ plate, fo
 
           {/* Hộp địa chỉ vị trí hiện tại */}
           <div className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-xs space-y-1.5">
-            <div className="flex items-start gap-1.5">
-              <MapPin size={14} className="text-emerald-600 shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-gray-900 leading-snug break-words">
-                  {currentSignal?.address || 'Chưa có thông tin địa chỉ'}
-                </div>
-                {currentSignal?.lat && currentSignal?.lng && (
-                  <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-gray-100 text-[11px] text-gray-500">
-                    <span className="font-mono text-[10.5px]">
-                      {currentSignal.lat.toFixed(4)}° N, {currentSignal.lng.toFixed(4)}° E
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyCoords(`${currentSignal.lat}, ${currentSignal.lng}`)}
-                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 transition px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
-                      title="Sao chép tọa độ"
-                    >
-                      {copiedCoords ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
-                      <span>{copiedCoords ? 'Đã chép' : 'Sao chép'}</span>
-                    </button>
-                  </div>
-                )}
+            <div className="flex items-center gap-1.5">
+              <MapPin size={14} className="text-emerald-600 shrink-0" />
+              <div className="min-w-0 flex-1 text-xs font-bold text-gray-900 leading-snug break-words">
+                {currentSignal?.address || 'Chưa có thông tin địa chỉ'}
               </div>
+              {currentSignal?.lat != null && currentSignal?.lng != null && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyCoords(`${currentSignal.lat}, ${currentSignal.lng}`)}
+                  className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 transition px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                  title="Sao chép tọa độ"
+                >
+                  {copiedCoords ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                  <span>{copiedCoords ? 'Đã chép' : 'Sao chép'}</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -291,7 +284,6 @@ const RescueOrderGpsJourney: React.FC<RescueOrderGpsJourneyProps> = ({ plate, fo
 
         <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4">
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold text-[#091b37]">Lịch sử hành trình · {plateLabel}</p>
             <div className="grid grid-cols-2 gap-2">
               <label className="flex flex-col gap-0.5">
                 <span className="text-[10px] font-semibold text-gray-500">Từ</span>

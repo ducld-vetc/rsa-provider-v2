@@ -721,7 +721,7 @@ const PartnerVehicleList: React.FC = () => {
                     className="flex items-center gap-1.5 bg-[#00A859] text-white px-3.5 py-2 rounded font-bold text-xs hover:bg-green-700 transition shadow-sm"
                   >
                     <Plus size={15} />
-                    <span>+ Thêm xe</span>
+                    <span>Thêm xe</span>
                   </button>
                 </>
               )}
@@ -754,11 +754,10 @@ const PartnerVehicleList: React.FC = () => {
               <button
                 type="button"
                 onClick={handleResetFilters}
-                className="flex items-center gap-1.5 border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 px-3.5 py-1.5 rounded font-bold text-xs transition shadow-sm ml-1"
+                className="inline-flex h-[30px] w-[30px] items-center justify-center border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 rounded transition shadow-sm ml-1"
                 title="Đặt lại bộ lọc"
               >
                 <RotateCcw size={14} />
-                <span>Đặt lại</span>
               </button>
 
               <button
@@ -814,7 +813,7 @@ const PartnerVehicleList: React.FC = () => {
                   v.status === 'READY' || (!v.status && v.runStatus === 'active')
                     ? 'Sẵn sàng'
                     : v.status === 'MAINTENANCE' || (!v.status && v.runStatus === 'repair')
-                    ? 'Đang sửa chữa'
+                    ? 'Sửa chữa'
                     : v.status === 'STOPPED'
                     ? 'Tạm dừng'
                     : v.status === 'WORKING'
@@ -824,7 +823,7 @@ const PartnerVehicleList: React.FC = () => {
                 const statusBadgeStyle =
                   statusLabel === 'Sẵn sàng'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                    : statusLabel === 'Đang sửa chữa'
+                    : statusLabel === 'Sửa chữa'
                     ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                     : statusLabel === 'Tạm dừng'
                     ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'
@@ -914,7 +913,7 @@ const PartnerVehicleList: React.FC = () => {
                     </td>
 
                     {/* Ngày đăng ký */}
-                    <td className="px-3 py-3 border-r text-center font-mono text-gray-700">
+                    <td className="px-3 py-3 border-r text-center tabular-nums text-gray-700">
                       {v.registrationDate || '—'}
                     </td>
 
