@@ -134,7 +134,6 @@ export type GpsPlaybackDemoCaseId = 'with_data' | 'empty';
 
 export const GPS_PLAYBACK_DEMO_CASES: { id: GpsPlaybackDemoCaseId; label: string }[] = [
   { id: 'with_data', label: 'Có hành trình' },
-  { id: 'empty', label: 'Không có dữ liệu' },
 ];
 
 export function getRescueGpsPlaybackMock(caseId: GpsPlaybackDemoCaseId): RescueGpsPlaybackBundle {

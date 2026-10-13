@@ -1291,9 +1291,6 @@ const AppliedFeeTablesModal: React.FC<{
   );
 };
 
-const SAMPLE_ISSUED_INVOICE_URL =
-  'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
-
 const GuestOrderDetails: React.FC<{
   role?: 'OSA' | 'ADMIN' | 'CSKH' | 'STATION' | 'DRIVER';
 }> = ({ role = 'CSKH' }) => {
@@ -1336,9 +1333,9 @@ const GuestOrderDetails: React.FC<{
   const [isInvoicePreviewOpen, setIsInvoicePreviewOpen] = useState(false);
   const [invoicePreviewMode, setInvoicePreviewMode] = useState<'preview' | 'export' | 'adjust' | 'replace'>('preview');
   const [isExportingInvoice, setIsExportingInvoice] = useState(false);
-  /** Sample case: đơn đã xuất hóa đơn thành công. null = chưa xuất. */
+  /** Sample case: đơn đã xuất hóa đơn thành công */
   const [invoiceDownloadUrl, setInvoiceDownloadUrl] = useState<string | null>(
-    SAMPLE_ISSUED_INVOICE_URL
+    'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
   );
   const [invoiceEmail, setInvoiceEmail] = useState('nguyenvana@email.com');
   const [invoiceCode] = useState('1C25TRA-136');
@@ -2089,7 +2086,7 @@ const GuestOrderDetails: React.FC<{
     setIsExportingInvoice(true);
     setTimeout(() => {
       setIsExportingInvoice(false);
-      setInvoiceDownloadUrl(SAMPLE_ISSUED_INVOICE_URL);
+      setInvoiceDownloadUrl('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf');
       setIsInvoicePreviewOpen(false);
     }, 1500);
   };
@@ -2981,6 +2978,7 @@ const GuestOrderDetails: React.FC<{
                       <button
                         type="button"
                         title="Tra cứu thông tin xe theo BSX"
+                        disabled={!isEditing}
                         onClick={() => openVehicleLookup('plate')}
                         className="shrink-0 flex items-center gap-1 bg-white border border-vetc-green text-vetc-green px-2.5 py-1.5 rounded text-[10px] font-bold hover:bg-green-50 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
                       >
@@ -3001,6 +2999,7 @@ const GuestOrderDetails: React.FC<{
                       <button
                         type="button"
                         title="Tra cứu thông tin xe theo số khung"
+                        disabled={!isEditing}
                         onClick={() => openVehicleLookup('vin')}
                         className="shrink-0 flex items-center gap-1 bg-white border border-vetc-green text-vetc-green px-2.5 py-1.5 rounded text-[10px] font-bold hover:bg-green-50 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
                       >
@@ -4346,36 +4345,6 @@ const GuestOrderDetails: React.FC<{
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3">
-                  <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-blue-700">
-                    Demo trạng thái hóa đơn
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setInvoiceDownloadUrl(SAMPLE_ISSUED_INVOICE_URL)}
-                      className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                        invoiceDownloadUrl
-                          ? 'bg-[#00A859] text-white'
-                          : 'border border-blue-200 bg-white text-blue-800 hover:border-[#00A859]'
-                      }`}
-                    >
-                      Đã xuất hóa đơn
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setInvoiceDownloadUrl(null)}
-                      className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                        invoiceDownloadUrl
-                          ? 'border border-blue-200 bg-white text-blue-800 hover:border-[#00A859]'
-                          : 'bg-[#00A859] text-white'
-                      }`}
-                    >
-                      Chưa xuất hóa đơn
-                    </button>
-                  </div>
-                </div>
-
                 {invoiceDownloadUrl ? (
                   <div className="overflow-hidden rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 via-white to-white shadow-sm">
                     <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -4445,6 +4414,17 @@ const GuestOrderDetails: React.FC<{
                       <p className="text-[11px] font-medium text-gray-500">Kiểm tra thông tin pháp nhân rồi xuất eInvoice</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInvoicePreviewMode('preview');
+                          setIsInvoicePreviewOpen(true);
+                        }}
+                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 text-xs font-bold text-gray-700 transition-colors hover:border-[#00A859] hover:text-[#00A859]"
+                      >
+                        <Eye size={14} />
+                        Xem trước
+                      </button>
                       <button
                         type="button"
                         onClick={handleExportInvoice}
@@ -4653,7 +4633,6 @@ const GuestOrderDetails: React.FC<{
           initialQuery={vehicleLookupQuery}
           searchMode={vehicleLookupMode}
           applyPackage={false}
-          allowApply={isEditing}
           onClose={() => setIsVehicleSearchOpen(false)}
           onApply={handleApplyVehicleInfo}
         />

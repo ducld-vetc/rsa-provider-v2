@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, UserCog } from 'lucide-react';
 import { PERSONAS, ROLE_LABEL, orgName, type PartnerPersona } from '../data/partnerRescueMockData';
 
 const STORAGE_KEY = 'partner-rescue-persona';
@@ -14,11 +14,16 @@ export const getStoredPersona = (): PartnerPersona => {
 };
 
 interface PartnerScopeBarProps {
-  persona: PartnerPersona;
-  onChange: (p: PartnerPersona) => void;
+  persona?: PartnerPersona;
+  currentPersona?: PartnerPersona;
+  onChange?: (p: PartnerPersona) => void;
+  onPersonaChange?: (p: PartnerPersona) => void;
 }
 
-const PartnerScopeBar: React.FC<PartnerScopeBarProps> = ({ persona, onChange }) => {
+// Nút đổi người đăng nhập (demo), góc trái dưới.
+const PartnerScopeBar: React.FC<PartnerScopeBarProps> = (props) => {
+  const persona = props.persona ?? props.currentPersona ?? getStoredPersona();
+  const onChange = props.onChange ?? props.onPersonaChange ?? (() => {});
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -37,45 +42,40 @@ const PartnerScopeBar: React.FC<PartnerScopeBarProps> = ({ persona, onChange }) 
         : `${persona.stationIds.length} trạm trong ${orgName(persona.orgNodeId)}`;
 
   return (
-    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <span className="font-bold uppercase tracking-wide text-[11px] text-amber-700">Demo đăng nhập</span>
-          <p className="mt-1">
-            <strong>{persona.title}</strong> · {ROLE_LABEL[persona.role]} · Phạm vi: {scopeText}
-          </p>
+    <div className="fixed bottom-4 left-4 z-50 text-[11px]">
+      {open && (
+        <div className="mb-2 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+          <div className="border-b border-gray-100 bg-amber-50 px-3 py-2 text-amber-900">
+            <span className="font-bold">{persona.title}</span> · {ROLE_LABEL[persona.role]} · {scopeText}
+          </div>
+          {PERSONAS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                onChange(p);
+                setOpen(false);
+              }}
+              className={`flex w-full flex-col items-start px-3 py-2 text-left hover:bg-amber-50 ${
+                p.id === persona.id ? 'bg-amber-50' : ''
+              }`}
+            >
+              <span className="font-bold text-gray-800">{p.label}</span>
+              <span className="text-gray-500">{p.title}</span>
+            </button>
+          ))}
         </div>
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-bold text-amber-900 hover:border-amber-500"
-          >
-            Đổi người đăng nhập (demo)
-            <ChevronDown size={12} className={open ? 'rotate-180' : ''} />
-          </button>
-          {open && (
-            <div className="absolute right-0 z-40 mt-1 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
-              {PERSONAS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(p);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full flex-col items-start px-3 py-2 text-left text-[11px] hover:bg-amber-50 ${
-                    p.id === persona.id ? 'bg-amber-50' : ''
-                  }`}
-                >
-                  <span className="font-bold text-gray-800">{p.label}</span>
-                  <span className="text-gray-500">{p.title}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Đổi người đăng nhập (demo)"
+        className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-white px-3 py-1.5 font-bold text-amber-900 shadow-md hover:border-amber-500"
+      >
+        <UserCog size={14} />
+        {persona.label}
+        <ChevronDown size={12} className={open ? 'rotate-180' : ''} />
+      </button>
     </div>
   );
 };

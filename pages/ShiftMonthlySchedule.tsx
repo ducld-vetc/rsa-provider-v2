@@ -1,1772 +1,2555 @@
-import React, { useMemo, useRef, useState } from 'react';
+/**
+ * ShiftMonthlySchedule.tsx
+ * Route: /partner/shift-schedule & /shift-monthly-schedule
+ * Thiết kế giao diện chuẩn 100% theo màn /employee-management/shifts trong rsa-provider-portal
+ * Bao gồm 3 Tab:
+ *   1. Lịch tháng (MonthlyCalendar - Sidebar kéo thả tài xế, Ngày/Tuần/Tháng, DayView, MonthGrid, Footer KPI)
+ *   2. Tổng quan (Overview - 6 Thẻ KPI, Lọc khoảng ngày, Danh sách ca thiếu nhân sự + nút Thêm NV)
+ *   3. Dạng bảng (ShiftTableView - Khối TRA CỨU, Table danh sách phân ca, Tag trạng thái, Modal chi tiết/sửa/hủy)
+ */
+import React, { useMemo, useState } from 'react';
 import {
-  AlertTriangle,
-  Check,
-  Download,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Edit,
   Eye,
-  Loader2,
-  Pencil,
-  RotateCcw,
-  Save,
-  Settings2,
-  Sparkles,
-  Upload,
+  Lock,
+  Plus,
+  RefreshCw,
+  Search,
+  StopCircle,
+  Trash2,
+  User,
+  Users,
+  AlertTriangle,
   X,
+  CheckCircle2,
+  Truck,
+  Wrench,
+  ShieldCheck,
+  Filter,
+  LogIn,
+  LogOut,
+  Smartphone,
+  Check,
+  AlertCircle,
+  Gauge,
+  Camera,
 } from 'lucide-react';
 import {
-  ACTUAL_WORK_META,
-  actualWorkFactKey,
-  buildMockActualWorkFacts,
-  computeDailySummaryStats,
-  computeSessionSummaryStats,
-  isStrictPastDay,
-  MOCK_EXCEL_IMPORT_PREVIEW,
-  formatShiftTimeLabel,
-  getDaysInMonth,
-  getStaffingShiftsForRole,
-  type EmployeeDayWorkFact,
-  type MonthlyEmployee,
-  type ShiftDayWarning,
+  MOCK_STATIONS_FOR_SHIFT,
+  MOCK_DRIVERS_BY_STATION,
   type ShiftDefinition,
-  type ShiftRole,
+  type DriverStationMockRecord,
 } from '../data/shiftConfigMockData';
-import type { AutoScheduleResult } from '../data/autoScheduleEngine';
-import { formatShiftUnits, getShiftWorkloadUnits, isOvertimeShift } from '../data/autoScheduleEngine';
 import { useShiftConfig } from '../context/ShiftConfigContext';
-import EmployeeShiftPreferenceModal from '../components/EmployeeShiftPreferenceModal';
+import PartnerScopeBar, { getStoredPersona } from '../components/PartnerScopeBar';
+import { type PartnerPersona, VEHICLES, MASTER_TOOL_CATALOG, VEHICLE_TYPE_LABEL } from '../data/partnerRescueMockData';
+import { CheckinModal, type ToolInspectionItem } from '../components/shift/CheckinModal';
+import { CheckoutModal } from '../components/shift/CheckoutModal';
+import { AppShiftSimulatorModal } from '../components/shift/AppShiftSimulatorModal';
 
-const WARNING_META: Record<
-  ShiftDayWarning['type'],
-  { label: string; chip: string; cell: string; dot: string; summary: string }
-> = {
-  UNDERSTAFFED: {
-    label: 'Thiếu',
-    chip: 'bg-red-100 text-red-700 border-red-200',
-    cell: 'bg-red-100 text-red-900 border-red-300 ring-1 ring-red-300',
-    dot: 'bg-red-500',
-    summary: 'bg-red-50 border-red-200 text-red-800',
-  },
-  OVERSTAFFED: {
-    label: 'Thừa',
-    chip: 'bg-orange-100 text-orange-700 border-orange-200',
-    cell: 'bg-orange-100 text-orange-900 border-orange-300 ring-1 ring-orange-300',
-    dot: 'bg-orange-500',
-    summary: 'bg-orange-50 border-orange-200 text-orange-800',
-  },
-  ALL_NEW: {
-    label: 'NV mới',
-    chip: 'bg-purple-100 text-purple-700 border-purple-200',
-    cell: 'bg-purple-100 text-purple-900 border-purple-300 ring-1 ring-purple-300',
-    dot: 'bg-purple-500',
-    summary: 'bg-purple-50 border-purple-200 text-purple-800',
-  },
+// ─── Enums & Types theo rsa-provider-portal & FDD FL-M2-03 ───────────────────
+
+export type ShiftStatus =
+  | 'PLANNED'      // Đã lên lịch (tím)
+  | 'IN_PROGRESS'  // Đang diễn ra (xanh dương)
+  | 'COMPLETED'    // Đã hoàn thành (xanh lá)
+  | 'CANCELLED'    // Đã hủy (đỏ)
+  | 'PENDING';     // Đang chờ (cam)
+
+export const shiftStatusLabels: Record<ShiftStatus, string> = {
+  PLANNED: 'Đã lên lịch',
+  IN_PROGRESS: 'Đang diễn ra',
+  COMPLETED: 'Đã hoàn thành',
+  CANCELLED: 'Đã hủy',
+  PENDING: 'Đang chờ',
 };
 
-type ScheduleScreenMode = 'view' | 'edit';
-
-const cloneEmployees = (list: MonthlyEmployee[]): MonthlyEmployee[] =>
-  list.map((emp) => ({ ...emp, assignments: { ...emp.assignments } }));
-
-const primaryWarning = (warnings: ShiftDayWarning[]): ShiftDayWarning | null => {
-  if (warnings.some((w) => w.type === 'UNDERSTAFFED')) {
-    return warnings.find((w) => w.type === 'UNDERSTAFFED') ?? null;
-  }
-  if (warnings.some((w) => w.type === 'OVERSTAFFED')) {
-    return warnings.find((w) => w.type === 'OVERSTAFFED') ?? null;
-  }
-  if (warnings.some((w) => w.type === 'ALL_NEW')) {
-    return warnings.find((w) => w.type === 'ALL_NEW') ?? null;
-  }
-  return null;
+export const shiftStatusBadgeStyles: Record<ShiftStatus, string> = {
+  PLANNED: 'bg-purple-50 text-purple-700 border-purple-200',
+  IN_PROGRESS: 'bg-blue-50 text-blue-700 border-blue-200',
+  COMPLETED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  CANCELLED: 'bg-rose-50 text-rose-700 border-rose-200',
+  PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
 };
+
+// ─── Độ phủ ca (UI-11, BR-03) ────────────────────────────────────────────────
+
+type StaffingState = 'UNDER' | 'OK' | 'FULL' | 'OVER';
+
+function calcStaffingState(assigned: number, minStaff: number, maxStaff?: number): StaffingState {
+  if (maxStaff != null && assigned > maxStaff) return 'OVER';
+  if (maxStaff != null && assigned >= maxStaff) return 'FULL';
+  if (assigned >= minStaff) return 'OK';
+  return 'UNDER';
+}
+
+const staffingBadgeStyle: Record<StaffingState, string> = {
+  UNDER: 'bg-rose-50 text-rose-700 border-rose-200',
+  OK: 'bg-emerald-50 text-[#005d2d] border-emerald-200',
+  FULL: 'bg-slate-100 text-slate-500 border-slate-300',
+  OVER: 'bg-amber-50 text-amber-700 border-amber-200',
+};
+
+function staffingLabel(state: StaffingState, assigned: number, minStaff: number, maxStaff?: number): string {
+  if (state === 'UNDER') return `Thiếu ${minStaff - assigned}`;
+  if (state === 'OVER') return `Thừa ${assigned - maxStaff!}`;
+  if (state === 'FULL') return 'Đã đầy';
+  return 'Đủ';
+}
+
+export interface ShiftAssignmentItem {
+  id: string;
+  driverId: string;
+  driverName: string;
+  driverPhone?: string;
+  driverRole?: string;
+  shiftConfigId: string;
+  shiftName: string;
+  date: string; // YYYY-MM-DD
+  startTime: string;
+  endTime: string;
+  status: ShiftStatus;
+  staffRole?: string;
+  note?: string;
+  vehiclePlate?: string;
+  vehicleType?: string;
+  // Thông tin checkin app
+  checkinAt?: string;
+  checkoutAt?: string;
+  startKm?: number;
+  endKm?: number;
+  toolCondition?: 'GOOD' | 'BROKEN' | 'MISSING';
+  toolItems?: ToolInspectionItem[];
+  checkinNote?: string;
+  checkoutNote?: string;
+}
+
+export interface DragItemData {
+  type: 'DRIVER' | 'ASSIGNMENT';
+  driverId: string;
+  driverName: string;
+  assignmentId?: string;
+  sourceDate?: string;
+}
+
+// ─── Helper ngày tháng chuẩn JS ──────────────────────────────────────────────
+
+const pad2 = (n: number) => n.toString().padStart(2, '0');
+
+const formatDateStr = (d: Date) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+const formatDisplayDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-');
+  return `${d}/${m}/${y}`;
+};
+
+const isSameDay = (d1: Date, d2: Date) =>
+  d1.getFullYear() === d2.getFullYear() &&
+  d1.getMonth() === d2.getMonth() &&
+  d1.getDate() === d2.getDate();
+
+const isStrictPast = (dateStr: string) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const target = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return target.getTime() < today.getTime();
+};
+
+const getStartOfWeek = (d: Date) => {
+  const date = new Date(d);
+  const day = (date.getDay() + 6) % 7; // T2 = 0
+  date.setDate(date.getDate() - day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+// ─── Component chính ShiftMonthlySchedule ────────────────────────────────────
 
 const ShiftMonthlySchedule: React.FC = () => {
-  const {
-    getShiftDefinitionsForRole,
-    computeWarnings,
-    computeSlotStats,
-    buildEmployees,
-    runAutoScheduleForMonth,
-    getMinShiftUnitsFromBe,
-    updateShiftMonthPreference,
-    getShiftMonthPreferenceFor,
-  } = useShiftConfig();
+  const { shiftDefinitions } = useShiftConfig();
+  const [persona, setPersona] = useState<PartnerPersona>(getStoredPersona);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [role, setRole] = useState<ShiftRole>('OSA');
-  const [yearMonth, setYearMonth] = useState('2026-07');
-  const [savedEmployees, setSavedEmployees] = useState<MonthlyEmployee[]>(() =>
-    buildEmployees('OSA', '2026-07')
+  // Top Filter controls
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>('partner-vetc');
+  const [selectedStationId, setSelectedStationId] = useState<string>(MOCK_STATIONS_FOR_SHIFT[0].id);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Tab State: '1' Lịch tháng | '2' Tổng quan | '3' Dạng bảng
+  const [activeTab, setActiveTab] = useState<'1' | '2' | '3'>('1');
+
+  // Trạm hiện tại
+  const currentStation = useMemo(
+    () => MOCK_STATIONS_FOR_SHIFT.find((s) => s.id === selectedStationId) || MOCK_STATIONS_FOR_SHIFT[0],
+    [selectedStationId]
   );
-  const [draftEmployees, setDraftEmployees] = useState<MonthlyEmployee[] | null>(null);
-  const [previewEmployees, setPreviewEmployees] = useState<MonthlyEmployee[] | null>(null);
-  const [previewFileName, setPreviewFileName] = useState('');
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [isUploadProcessing, setIsUploadProcessing] = useState(false);
-  const [uploadProcessingFileName, setUploadProcessingFileName] = useState('');
-  const [editingCell, setEditingCell] = useState<{
-    employeeId: string;
-    day: number;
-    anchorTop: number;
-    anchorLeft: number;
+
+  // Danh sách tài xế theo trạm
+  const stationDrivers = useMemo(() => {
+    return MOCK_DRIVERS_BY_STATION[selectedStationId] || MOCK_DRIVERS_BY_STATION['stn-hn1'];
+  }, [selectedStationId]);
+
+  // Ca DRIVER hợp lệ
+  const driverShiftDefs = useMemo(() => {
+    return shiftDefinitions.filter(
+      (d) => d.role === 'DRIVER' && !d.isOvertime && d.status === 'active' && d.type !== 'SPLIT'
+    );
+  }, [shiftDefinitions]);
+
+  // ─── STATE DỮ LIỆU PHÂN CÔNG CA LÀM ──────────────────────────────────────────
+
+  const [assignments, setAssignments] = useState<ShiftAssignmentItem[]>(() => {
+    const list: ShiftAssignmentItem[] = [];
+    const today = new Date();
+    const monday = getStartOfWeek(today);
+
+    // Mẫu phân ca 7 ngày tuần này cho 5 tài xế đầu tiên
+    const sampleShifts = [
+      { id: 'shift-c1', name: 'Ca 1 (Sáng)', start: '07:00', end: '15:00' },
+      { id: 'shift-c2', name: 'Ca 2 (Chiều)', start: '13:30', end: '21:30' },
+      { id: 'shift-cd', name: 'Ca đêm', start: '21:30', end: '07:00' },
+    ];
+
+    const drvs = MOCK_DRIVERS_BY_STATION['stn-hn1'] || [];
+    drvs.slice(0, 5).forEach((drv, dIdx) => {
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        if ((dIdx + dayOffset) % 5 === 0) continue; // một số ngày nghỉ
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + dayOffset);
+        const dateStr = formatDateStr(d);
+        const s = sampleShifts[(dIdx + dayOffset) % sampleShifts.length];
+
+        const past = isStrictPast(dateStr);
+        const todayDate = isSameDay(d, today);
+        let status: ShiftStatus = 'PLANNED';
+        if (past) status = 'COMPLETED';
+        else if (todayDate) status = 'IN_PROGRESS';
+
+        list.push({
+          id: `asg-${drv.id}-${dateStr}-${s.id}`,
+          driverId: drv.id,
+          driverName: drv.name,
+          driverPhone: drv.phone,
+          driverRole: 'Lái xe cứu hộ',
+          shiftConfigId: s.id,
+          shiftName: s.name,
+          date: dateStr,
+          startTime: s.start,
+          endTime: s.end,
+          status,
+          staffRole: 'Lái xe cứu hộ',
+          vehiclePlate: '29A-888.99',
+          vehicleType: 'Cứu hộ sàn trượt',
+          checkinAt: status === 'IN_PROGRESS' || status === 'COMPLETED' ? '06:50' : undefined,
+          startKm: status === 'IN_PROGRESS' || status === 'COMPLETED' ? 45200 : undefined,
+          endKm: status === 'COMPLETED' ? 45310 : undefined,
+          toolCondition: 'GOOD',
+          note: 'Phân công ca trực tiêu chuẩn',
+        });
+      }
+    });
+
+    return list;
+  });
+
+  // Xử lý refresh
+  const handleRefreshAll = () => {
+    setIsRefreshing(true);
+    setTimeout(() => {
+      setIsRefreshing(false);
+      showToast('Đã làm mới dữ liệu lịch ca thành công');
+    }, 500);
+  };
+
+  // ─── TAB 1: MONTHLY CALENDAR STATES ──────────────────────────────────────────
+
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week');
+  const [searchDriver, setSearchDriver] = useState('');
+
+  // Lọc tài xế sidebar
+  const filteredSidebarDrivers = useMemo(() => {
+    const q = searchDriver.toLowerCase().trim();
+    if (!q) return stationDrivers;
+    return stationDrivers.filter(
+      (d) => d.name.toLowerCase().includes(q) || d.phone.includes(q) || d.code.toLowerCase().includes(q)
+    );
+  }, [stationDrivers, searchDriver]);
+
+  // Các ngày cần hiển thị trong Grid (Tuần hoặc Tháng)
+  const daysToShow = useMemo(() => {
+    if (viewMode === 'day') {
+      return [new Date(currentDate)];
+    }
+    if (viewMode === 'week') {
+      const start = getStartOfWeek(currentDate);
+      const days: Date[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        days.push(d);
+      }
+      return days;
+    }
+    // month view
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const startOfGrid = getStartOfWeek(firstDay);
+    const lastDay = new Date(y, m + 1, 0);
+    const days: Date[] = [];
+    const d = new Date(startOfGrid);
+    while (d <= lastDay || d.getDay() !== 1 || days.length < 35) {
+      days.push(new Date(d));
+      d.setDate(d.getDate() + 1);
+      if (days.length >= 42) break;
+    }
+    return days;
+  }, [currentDate, viewMode]);
+
+  // Header Title
+  const getHeaderTitle = () => {
+    if (viewMode === 'month') {
+      return `Tháng ${currentDate.getMonth() + 1}, ${currentDate.getFullYear()}`;
+    }
+    if (viewMode === 'week') {
+      const start = getStartOfWeek(currentDate);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      return `Tuần ${pad2(start.getDate())}/${pad2(start.getMonth() + 1)} - ${pad2(end.getDate())}/${pad2(
+        end.getMonth() + 1
+      )}, ${currentDate.getFullYear()}`;
+    }
+    return `Ngày ${pad2(currentDate.getDate())}/${pad2(currentDate.getMonth() + 1)}/${currentDate.getFullYear()}`;
+  };
+
+  const handlePrev = () => {
+    const d = new Date(currentDate);
+    if (viewMode === 'month') d.setMonth(d.getMonth() - 1);
+    else if (viewMode === 'week') d.setDate(d.getDate() - 7);
+    else d.setDate(d.getDate() - 1);
+    setCurrentDate(d);
+  };
+
+  const handleNext = () => {
+    const d = new Date(currentDate);
+    if (viewMode === 'month') d.setMonth(d.getMonth() + 1);
+    else if (viewMode === 'week') d.setDate(d.getDate() + 7);
+    else d.setDate(d.getDate() + 1);
+    setCurrentDate(d);
+  };
+
+  // Drag and drop logic
+  const [draggedItem, setDraggedItem] = useState<DragItemData | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, item: DragItemData) => {
+    if (item.type === 'ASSIGNMENT' && item.sourceDate && isStrictPast(item.sourceDate)) {
+      e.preventDefault();
+      showToast('⚠️ Không thể di chuyển ca làm đã diễn ra trong quá khứ');
+      return;
+    }
+    setDraggedItem(item);
+    e.dataTransfer.setData('text/plain', JSON.stringify(item));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  // Popup Modal xác nhận phân công / chuyển ca
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const handleDropSlot = (dateStr: string, shiftDef: ShiftDefinition | { id: string; name: string; timeStart: string; timeEnd: string }) => {
+    if (!draggedItem) return;
+
+    if (isStrictPast(dateStr)) {
+      showToast('⚠️ Không thể phân ca cho ngày đã qua trong quá khứ');
+      return;
+    }
+
+    if (draggedItem.type === 'DRIVER') {
+      const alreadyInShift = assignments.some(
+        (a) => a.date === dateStr && a.driverId === draggedItem.driverId && a.shiftConfigId === shiftDef.id
+      );
+      if (alreadyInShift) {
+        showToast(`Tài xế ${draggedItem.driverName} đã được xếp vào ca này`);
+        return;
+      }
+
+      setConfirmModal({
+        open: true,
+        title: 'Xác nhận phân công ca',
+        message: `Phân công tài xế "${draggedItem.driverName}" vào ${shiftDef.name} ngày ${formatDisplayDate(dateStr)}?`,
+        onConfirm: () => {
+          const newAssignment: ShiftAssignmentItem = {
+            id: `asg-${draggedItem.driverId}-${dateStr}-${shiftDef.id}-${Date.now()}`,
+            driverId: draggedItem.driverId,
+            driverName: draggedItem.driverName,
+            driverRole: 'Lái xe cứu hộ',
+            shiftConfigId: shiftDef.id,
+            shiftName: shiftDef.name,
+            date: dateStr,
+            startTime: shiftDef.timeStart,
+            endTime: shiftDef.timeEnd,
+            status: isSameDay(new Date(dateStr), new Date()) ? 'IN_PROGRESS' : 'PLANNED',
+            staffRole: 'Lái xe cứu hộ',
+            vehiclePlate: '29A-888.99',
+            vehicleType: 'Cứu hộ sàn trượt',
+          };
+          setAssignments((prev) => [...prev, newAssignment]);
+          showToast(`Đã phân công ${draggedItem.driverName} vào ${shiftDef.name}`);
+        },
+      });
+    } else if (draggedItem.type === 'ASSIGNMENT' && draggedItem.assignmentId) {
+      setConfirmModal({
+        open: true,
+        title: 'Xác nhận chuyển ca',
+        message: `Chuyển tài xế "${draggedItem.driverName}" sang ${shiftDef.name} ngày ${formatDisplayDate(dateStr)}?`,
+        onConfirm: () => {
+          setAssignments((prev) =>
+            prev.map((a) => {
+              if (a.id === draggedItem.assignmentId) {
+                return {
+                  ...a,
+                  shiftConfigId: shiftDef.id,
+                  shiftName: shiftDef.name,
+                  date: dateStr,
+                  startTime: shiftDef.timeStart,
+                  endTime: shiftDef.timeEnd,
+                };
+              }
+              return a;
+            })
+          );
+          showToast(`Đã di chuyển ca làm của ${draggedItem.driverName}`);
+        },
+      });
+    }
+    setDraggedItem(null);
+  };
+
+  // Xóa / Gỡ phân công
+  const handleRemoveAssignment = (assignmentId: string, driverName: string, shiftName: string, dateStr: string) => {
+    setConfirmModal({
+      open: true,
+      title: 'Xác nhận xóa phân công',
+      message: `Xóa nhân viên "${driverName}" khỏi ca "${shiftName}" ngày ${formatDisplayDate(dateStr)}?`,
+      onConfirm: () => {
+        setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+        showToast(`Đã xóa phân công nhân viên ${driverName} khỏi ca`);
+      },
+    });
+  };
+
+  // Stats Footer cho Calendar
+  const calendarStats = useMemo(() => {
+    const uniqueDrivers = new Set(assignments.map((a) => a.driverId));
+    const assignedDates = new Set(assignments.map((a) => a.date));
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+    return {
+      totalAssignments: assignments.length,
+      assignedDrivers: uniqueDrivers.size,
+      daysWithShifts: assignedDates.size,
+      daysNoAssignments: Math.max(0, daysInCurrentMonth - assignedDates.size),
+    };
+  }, [assignments, currentDate]);
+
+  // Modal Chi tiết ngày (ShiftCalendarDayModal)
+  const [dayModalDate, setDayModalDate] = useState<Date | null>(null);
+
+  // ─── TAB 2: OVERVIEW STATES ──────────────────────────────────────────────────
+
+  const [overviewDateRange, setOverviewDateRange] = useState<[string, string]>(() => {
+    const today = new Date();
+    const end = new Date(today);
+    end.setDate(today.getDate() + 6);
+    return [formatDateStr(today), formatDateStr(end)];
+  });
+
+  // Modal tạo ca làm mới từ Tab Overview hoặc TableView
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    shiftId: '',
+    date: formatDateStr(new Date()),
+    driverId: '',
+    note: '',
+  });
+
+  // Modal thêm NV vào ca thiếu
+  const [addStaffModalOpen, setAddStaffModalOpen] = useState(false);
+  const [selectedUnderstaffedShift, setSelectedUnderstaffedShift] = useState<{
+    shiftDefId: string;
+    shiftName: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    assignedCount: number;
+    minRequired: number;
   } | null>(null);
-  const [autoResult, setAutoResult] = useState<AutoScheduleResult | null>(null);
-  const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
-  const [isPrefModalOpen, setIsPrefModalOpen] = useState(false);
-  const [autoStep, setAutoStep] = useState<'idle' | 'action1_done' | 'action2_done'>('idle');
-  const [pendingAutoAction, setPendingAutoAction] = useState<1 | 2 | null>(null);
-  const [isMidMonthPastPromptOpen, setIsMidMonthPastPromptOpen] = useState(false);
-  const [screenMode, setScreenMode] = useState<ScheduleScreenMode>('view');
-  const [pastEditPrompt, setPastEditPrompt] = useState<{
-    employeeId: string;
-    day: number;
-    anchorTop: number;
-    anchorLeft: number;
-  } | null>(null);
-  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
-  const [pendingModeChange, setPendingModeChange] = useState<ScheduleScreenMode | null>(null);
+  const [addStaffDriverId, setAddStaffDriverId] = useState('');
 
-  const isEditMode = screenMode === 'edit';
-  const employees = isEditMode && draftEmployees ? draftEmployees : savedEmployees;
-  const minShiftUnits = getMinShiftUnitsFromBe(role);
+  // Danh sách ca trong khoảng ngày Overview & thống kê
+  const shiftsOverviewList = useMemo(() => {
+    const list: {
+      shiftDefId: string;
+      shiftName: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+      assignedCount: number;
+      minRequired: number;
+    }[] = [];
 
-  const daysInMonth = getDaysInMonth(yearMonth);
-  const dayNumbers = useMemo(
-    () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
-    [daysInMonth]
-  );
-  const now = new Date();
-  const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const isCurrentMonth = yearMonth === currentYearMonth;
-  const weekdayLabels = useMemo(() => {
-    const [y, m] = yearMonth.split('-').map(Number);
-    const map = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-    const out = new Map<number, string>();
-    dayNumbers.forEach((d) => {
-      out.set(d, map[new Date(y, m - 1, d).getDay()]);
+    const [startStr, endStr] = overviewDateRange;
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+
+    const availableShifts = driverShiftDefs.length > 0 ? driverShiftDefs : [
+      { id: 'shift-c1', name: 'Ca 1 (Sáng)', timeStart: '07:00', timeEnd: '15:00', minStaff: 2 },
+      { id: 'shift-c2', name: 'Ca 2 (Chiều)', timeStart: '13:30', timeEnd: '21:30', minStaff: 2 },
+      { id: 'shift-cd', name: 'Ca đêm', timeStart: '21:30', timeEnd: '07:00', minStaff: 1 },
+    ];
+
+    const cur = new Date(start);
+    while (cur <= end) {
+      const dateStr = formatDateStr(cur);
+      availableShifts.forEach((s) => {
+        const minStaff = (s as any).minStaff ?? 1;
+        const count = assignments.filter((a) => a.date === dateStr && a.shiftConfigId === s.id).length;
+        list.push({
+          shiftDefId: s.id,
+          shiftName: s.name,
+          date: dateStr,
+          startTime: s.timeStart,
+          endTime: s.timeEnd,
+          assignedCount: count,
+          minRequired: minStaff,
+        });
+      });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return list;
+  }, [overviewDateRange, driverShiftDefs, assignments]);
+
+  // Ca thiếu nhân sự (assignedCount < minRequired)
+  const understaffedShifts = useMemo(() => {
+    return shiftsOverviewList.filter((s) => s.assignedCount < s.minRequired);
+  }, [shiftsOverviewList]);
+
+  // Thống kê ca làm hôm nay
+  const todayStats = useMemo(() => {
+    const todayStr = formatDateStr(new Date());
+    const todayShifts = shiftsOverviewList.filter((s) => s.date === todayStr);
+    const totalToday = todayShifts.length;
+    const staffedCount = todayShifts.filter((s) => s.assignedCount >= s.minRequired).length;
+    const understaffedCount = todayShifts.filter((s) => s.assignedCount < s.minRequired).length;
+
+    // Nhân viên
+    const totalActive = stationDrivers.filter((d) => d.status === 'ACTIVE').length;
+    const assignedTodayDrivers = new Set(assignments.filter((a) => a.date === todayStr).map((a) => a.driverId));
+    const assignedCount = assignedTodayDrivers.size;
+    const readyCount = Math.max(0, totalActive - assignedCount);
+
+    return {
+      totalToday,
+      staffedCount,
+      understaffedCount,
+      totalActive,
+      readyCount,
+      assignedCount,
+    };
+  }, [shiftsOverviewList, stationDrivers, assignments]);
+
+  // ─── TAB 3: SHIFT TABLE VIEW STATES ──────────────────────────────────────────
+
+  const [tableFilters, setTableFilters] = useState({
+    dateRange: [formatDateStr(new Date()), formatDateStr(new Date(Date.now() + 30 * 86400000))],
+    staffName: '',
+    shiftConfigId: '',
+    status: '',
+  });
+
+  const [tableSearchForm, setTableSearchForm] = useState({ ...tableFilters });
+  const [tablePage, setTablePage] = useState(1);
+  const tablePageSize = 10;
+
+  // Lọc danh sách phân ca bảng
+  const filteredTableAssignments = useMemo(() => {
+    return assignments.filter((item) => {
+      if (tableFilters.staffName && !item.driverName.toLowerCase().includes(tableFilters.staffName.toLowerCase())) {
+        return false;
+      }
+      if (tableFilters.shiftConfigId && item.shiftConfigId !== tableFilters.shiftConfigId) {
+        return false;
+      }
+      if (tableFilters.status && item.status !== tableFilters.status) {
+        return false;
+      }
+      if (tableFilters.dateRange[0] && item.date < tableFilters.dateRange[0]) {
+        return false;
+      }
+      if (tableFilters.dateRange[1] && item.date > tableFilters.dateRange[1]) {
+        return false;
+      }
+      return true;
     });
-    return out;
-  }, [dayNumbers, yearMonth]);
+  }, [assignments, tableFilters]);
 
-  const shiftDefinitions = useMemo(() => getShiftDefinitionsForRole(role), [getShiftDefinitionsForRole, role]);
-  const staffingShifts = useMemo(() => getStaffingShiftsForRole(role), [role]);
-  const fullShifts = useMemo(() => staffingShifts.filter((s) => s.staffingGroup === 'FULL'), [staffingShifts]);
-  const requiredBySession = useMemo(() => {
-    const c1 = fullShifts.find((s) => s.shiftKey === 'C1')?.minStaff ?? 0;
-    const c2 = fullShifts.find((s) => s.shiftKey === 'C2')?.minStaff ?? 0;
-    const c3 = fullShifts.find((s) => s.shiftKey === 'C3')?.minStaff ?? 0;
-    return { morning: c1, afternoon: c2, night: c3, total: c1 + c2 + c3 };
-  }, [fullShifts]);
-  const shiftKeys = useMemo(() => shiftDefinitions.map((s) => s.shiftKey), [shiftDefinitions]);
-  const shiftByKey = useMemo(
-    () => new Map(shiftDefinitions.map((s) => [s.shiftKey, s])),
-    [shiftDefinitions]
-  );
+  // Phân trang
+  const paginatedTableAssignments = useMemo(() => {
+    const start = (tablePage - 1) * tablePageSize;
+    return filteredTableAssignments.slice(start, start + tablePageSize);
+  }, [filteredTableAssignments, tablePage]);
 
-  /** Tháng đã có ít nhất 1 ô lịch được gán KEY → coi là đã xếp ca */
-  const scheduleAlreadyConfigured = useMemo(
-    () =>
-      employees.some((emp) =>
-        dayNumbers.some((d) => {
-          const key = emp.assignments[d];
-          return key != null && key !== '';
-        })
-      ),
-    [employees, dayNumbers]
-  );
-  const hasOvertimeShift = useMemo(
-    () => shiftDefinitions.some((s) => isOvertimeShift(s)),
-    [shiftDefinitions]
-  );
+  // Modal DLG-04: Chi tiết ca làm
+  const [detailModalItem, setDetailModalItem] = useState<ShiftAssignmentItem | null>(null);
 
-  const isPastOrTodayDay = (day: number) => isCurrentMonth && day <= now.getDate();
-  const isFutureDay = (day: number) => isCurrentMonth && day > now.getDate();
-  const isPastDay = (day: number) => isStrictPastDay(yearMonth, day, now);
+  // Modal Sửa ca làm
+  const [editModalItem, setEditModalItem] = useState<ShiftAssignmentItem | null>(null);
+  const [editForm, setEditForm] = useState({
+    driverId: '',
+    shiftConfigId: '',
+    date: '',
+    note: '',
+  });
 
-  const actualWorkFacts = useMemo(
-    () => buildMockActualWorkFacts(savedEmployees, yearMonth),
-    [savedEmployees, yearMonth]
-  );
+  // Modal Check-in & Check-out (FDD FL-M2-03)
+  const [checkinModalItem, setCheckinModalItem] = useState<ShiftAssignmentItem | null>(null);
+  const [checkoutModalItem, setCheckoutModalItem] = useState<ShiftAssignmentItem | null>(null);
+  const [appSimulatorOpen, setAppSimulatorOpen] = useState(false);
 
-  const getActualWorkFact = (employeeId: string, day: number): EmployeeDayWorkFact | null =>
-    actualWorkFacts.get(actualWorkFactKey(employeeId, day)) ?? null;
-
-  const countEmployeeUnits = (emp: MonthlyEmployee) => {
-    let total = 0;
-    Object.values(emp.assignments).forEach((key) => {
-      if (!key) return;
-      const shift = shiftByKey.get(key);
-      if (shift) total += getShiftWorkloadUnits(shift);
-    });
-    return total;
+  const handleOpenCheckin = (item: ShiftAssignmentItem) => {
+    setCheckinModalItem(item);
   };
 
-  const getShiftCellClass = (
-    shiftKey: string | null,
-    warn: ShiftDayWarning | null,
-    editable = false,
-    day?: number,
-    actualWork?: EmployeeDayWorkFact | null
-  ) => {
-    const past = day !== undefined && isPastDay(day);
-    const pastBase = past ? 'bg-slate-100/90 border-slate-300 text-slate-700' : '';
-    const actualWorkClass = past && actualWork ? ACTUAL_WORK_META[actualWork.status].cell : '';
-
-    if (!shiftKey) {
-      if (day !== undefined && isFutureDay(day)) {
-        return editable
-          ? 'bg-slate-50 text-slate-400 border border-dashed border-slate-300 hover:bg-slate-100'
-          : 'bg-slate-50 text-slate-400 border border-dashed border-slate-300';
-      }
-      if (past) {
-        const offClass =
-          actualWork?.status === 'WORKED'
-            ? 'bg-violet-50 text-violet-800 border-violet-200 border-l-2 border-l-violet-500'
-            : `${pastBase} text-slate-400`;
-        return `${offClass} border ${actualWorkClass}`.trim();
-      }
-      return editable
-        ? 'text-gray-300 hover:bg-gray-100 border border-transparent'
-        : 'text-gray-300 border border-transparent';
-    }
-    if (warn) return `${WARNING_META[warn.type].cell} ${past ? 'opacity-90' : ''}`.trim();
-    const primaryKey = shiftKey.split('+')[0]?.trim();
-    const def = primaryKey ? shiftByKey.get(primaryKey) : undefined;
-
-    if (past) {
-      if (actualWork?.status === 'NO_ORDERS') {
-        return `bg-amber-50/90 text-amber-900 border border-amber-300 ${actualWorkClass} ${
-          editable ? 'hover:bg-amber-100' : ''
-        }`.trim();
-      }
-      if (actualWork?.status === 'WORKED') {
-        return `bg-slate-100 text-slate-800 border border-slate-300 ${actualWorkClass} ${
-          editable ? 'hover:bg-slate-200/80' : ''
-        }`.trim();
-      }
-      return `${pastBase} border ${actualWorkClass} ${editable ? 'hover:bg-slate-200/70' : ''}`.trim();
-    }
-
-    if (isOvertimeShift(def)) {
-      return editable
-        ? 'bg-orange-100 text-orange-900 border border-orange-300 hover:bg-orange-200 ring-1 ring-orange-200'
-        : 'bg-orange-100 text-orange-900 border border-orange-300 ring-1 ring-orange-200';
-    }
-    if (def?.isNightShift) {
-      return editable
-        ? 'bg-indigo-100 text-indigo-900 border border-indigo-200 hover:bg-indigo-200'
-        : 'bg-indigo-100 text-indigo-900 border border-indigo-200';
-    }
-    return editable
-      ? 'bg-emerald-50 text-emerald-800 border border-emerald-100 hover:bg-emerald-100'
-      : 'bg-emerald-50 text-emerald-800 border border-emerald-100';
+  const handleOpenCheckout = (item: ShiftAssignmentItem) => {
+    setCheckoutModalItem(item);
   };
 
-  const buildCellTitle = (
-    shiftKey: string | null,
-    day: number,
-    isUnconfiguredFuture: boolean,
-    actualWork: EmployeeDayWorkFact | null
-  ) => {
-    const parts: string[] = [];
-    if (isPastDay(day) && actualWork) {
-      parts.push(
-        actualWork.status === 'WORKED'
-          ? `Thực tế: có ${actualWork.orderCount} đơn`
-          : actualWork.status === 'NO_ORDERS'
-            ? 'Thực tế: xếp ca nhưng không có đơn'
-            : 'Thực tế: nghỉ (không có đơn)'
-      );
-    }
-    if (shiftKey) {
-      const first = shiftByKey.get(shiftKey.split('+')[0]?.trim() ?? '');
-      const prefix = `${first?.isOvertime ? 'Ca OT — ' : ''}${first?.isNightShift ? 'Ca đêm — ' : ''}`;
-      parts.push(`${prefix}Ca ${shiftKey}${isEditMode ? ' — bấm để sửa' : ''}`);
-    } else if (isUnconfiguredFuture) {
-      parts.push('Chưa cấu hình ca — ngày tương lai');
-    } else if (isEditMode) {
-      parts.push('Bấm để gán ca');
-    } else {
-      parts.push('Không có ca');
-    }
-    return parts.join('\n');
-  };
-
-  const renderActualWorkBadge = (actualWork: EmployeeDayWorkFact | null, shiftKey: string | null) => {
-    if (!actualWork) return null;
-    if (actualWork.status === 'WORKED') {
-      return (
-        <span
-          className={`absolute bottom-0.5 right-0.5 px-0.5 rounded text-[6px] font-black leading-none ${ACTUAL_WORK_META.WORKED.badge}`}
-        >
-          {actualWork.orderCount}đ
-        </span>
-      );
-    }
-    if (actualWork.status === 'NO_ORDERS' && shiftKey) {
-      return (
-        <span
-          className={`absolute bottom-0.5 right-0.5 px-0.5 rounded text-[6px] font-black leading-none ${ACTUAL_WORK_META.NO_ORDERS.badge}`}
-        >
-          0đ
-        </span>
-      );
-    }
-    if (actualWork.status === 'WORKED' && !shiftKey) {
-      return (
-        <span className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-violet-500 ring-1 ring-white" />
-      );
-    }
-    return null;
-  };
-
-  const handleScreenModeChange = (mode: ScheduleScreenMode) => {
-    if (mode === 'view' && isEditMode && hasUnsavedChanges) {
-      setPendingModeChange('view');
-      setIsDiscardModalOpen(true);
-      return;
-    }
-    if (mode === 'edit') {
-      setDraftEmployees(cloneEmployees(savedEmployees));
-    } else {
-      setDraftEmployees(null);
-    }
-    setScreenMode(mode);
-    setEditingCell(null);
-    setPastEditPrompt(null);
-  };
-
-  const commitDraftToSaved = () => {
-    if (draftEmployees) setSavedEmployees(cloneEmployees(draftEmployees));
-    setIsSaveModalOpen(false);
-    setEditingCell(null);
-    setPastEditPrompt(null);
-  };
-
-  const discardDraftChanges = () => {
-    setDraftEmployees(cloneEmployees(savedEmployees));
-    setIsDiscardModalOpen(false);
-    setEditingCell(null);
-    setPastEditPrompt(null);
-    setAutoStep('idle');
-    if (pendingModeChange === 'view') {
-      setDraftEmployees(null);
-      setScreenMode('view');
-      setPendingModeChange(null);
-    }
-  };
-
-  const updateDraftEmployees = (
-    updater: MonthlyEmployee[] | ((prev: MonthlyEmployee[]) => MonthlyEmployee[])
-  ) => {
-    const apply = (prev: MonthlyEmployee[]) =>
-      typeof updater === 'function' ? updater(prev) : updater;
-    if (isEditMode) {
-      setDraftEmployees((prev) => apply(prev ?? savedEmployees));
-      return;
-    }
-    setSavedEmployees((prev) => apply(prev));
-  };
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!draftEmployees) return false;
-    return savedEmployees.some((saved) => {
-      const draft = draftEmployees.find((d) => d.id === saved.id);
-      if (!draft) return true;
-      return dayNumbers.some(
-        (day) => (saved.assignments[day] ?? null) !== (draft.assignments[day] ?? null)
-      );
-    });
-  }, [draftEmployees, savedEmployees, dayNumbers]);
-
-  const saveImpact = useMemo(() => {
-    if (!draftEmployees) {
-      return { changedEmployees: 0, changedCells: 0, changedPastOrToday: 0 };
-    }
-    let changedEmployees = 0;
-    let changedCells = 0;
-    let changedPastOrToday = 0;
-    savedEmployees.forEach((saved) => {
-      const draft = draftEmployees.find((d) => d.id === saved.id);
-      if (!draft) return;
-      let empChanged = false;
-      dayNumbers.forEach((day) => {
-        const before = saved.assignments[day] ?? null;
-        const after = draft.assignments[day] ?? null;
-        if (before !== after) {
-          changedCells += 1;
-          empChanged = true;
-          if (isPastOrTodayDay(day)) changedPastOrToday += 1;
+  const handleSaveCheckin = (data: {
+    assignmentId: string;
+    vehiclePlate: string;
+    vehicleType?: string;
+    startKm: number;
+    toolCondition: 'GOOD' | 'BROKEN' | 'MISSING';
+    toolItems: ToolInspectionItem[];
+    checkinNote?: string;
+  }) => {
+    const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    setAssignments((prev) =>
+      prev.map((a) => {
+        if (a.id === data.assignmentId) {
+          return {
+            ...a,
+            vehiclePlate: data.vehiclePlate,
+            vehicleType: data.vehicleType || a.vehicleType,
+            checkinAt: nowStr,
+            startKm: data.startKm,
+            toolCondition: data.toolCondition,
+            toolItems: data.toolItems,
+            checkinNote: data.checkinNote,
+            status: 'IN_PROGRESS' as ShiftStatus,
+          };
         }
-      });
-      if (empChanged) changedEmployees += 1;
-    });
-    return { changedEmployees, changedCells, changedPastOrToday };
-  }, [draftEmployees, savedEmployees, dayNumbers, isCurrentMonth, now]);
-
-  const tryOpenCellEditor = (
-    employeeId: string,
-    day: number,
-    anchorTop: number,
-    anchorLeft: number
-  ) => {
-    if (isPastOrTodayDay(day)) {
-      setPastEditPrompt({ employeeId, day, anchorTop, anchorLeft });
-      return;
-    }
-    setEditingCell({ employeeId, day, anchorTop, anchorLeft });
-  };
-
-  const handleSaveClick = () => {
-    if (!hasUnsavedChanges) return;
-    setIsSaveModalOpen(true);
-  };
-
-  const handleConfirmSave = () => {
-    commitDraftToSaved();
-  };
-
-  const warnings = useMemo(
-    () => computeWarnings(role, yearMonth, employees),
-    [computeWarnings, role, yearMonth, employees]
-  );
-
-  const shiftCoverageStats = useMemo(
-    () => computeSlotStats(role, yearMonth, employees),
-    [computeSlotStats, role, yearMonth, employees]
-  );
-  const dailySummaryStats = useMemo(
-    () => computeDailySummaryStats(role, yearMonth, employees),
-    [role, yearMonth, employees]
-  );
-  const sessionSummaryStats = useMemo(
-    () => computeSessionSummaryStats(role, yearMonth, employees),
-    [role, yearMonth, employees]
-  );
-
-  const sessionSummaryChips = useMemo(() => {
-    let understaffed = 0;
-    let overstaffed = 0;
-    let ok = 0;
-    dayNumbers.forEach((day) => {
-      const stat = sessionSummaryStats.get(day);
-      if (!stat) return;
-      const sessions = [
-        { value: stat.morning, required: stat.requiredMorning },
-        { value: stat.afternoon, required: stat.requiredAfternoon },
-        { value: stat.night, required: stat.requiredNight },
-      ];
-      sessions.forEach(({ value, required }) => {
-        if (value < required) understaffed += 1;
-        else if (value > required) overstaffed += 1;
-        else ok += 1;
-      });
-    });
-    return { understaffed, overstaffed, ok };
-  }, [dayNumbers, sessionSummaryStats]);
-
-  const handleRoleChange = (r: ShiftRole) => {
-    const next = buildEmployees(r, yearMonth);
-    setRole(r);
-    setSavedEmployees(next);
-    setDraftEmployees(isEditMode ? cloneEmployees(next) : null);
-    setEditingCell(null);
-    setPastEditPrompt(null);
-    setAutoStep('idle');
-  };
-
-  const handleMonthChange = (value: string) => {
-    const next = buildEmployees(role, value);
-    setYearMonth(value);
-    setSavedEmployees(next);
-    setDraftEmployees(isEditMode ? cloneEmployees(next) : null);
-    setEditingCell(null);
-    setPastEditPrompt(null);
-    setAutoStep('idle');
-  };
-
-  const handleRunAutoSchedule = (
-    action: 1 | 2,
-    mode: 'full_month' | 'future_with_remaining' | 'future_only' = 'full_month'
-  ) => {
-    const todayDay = now.getDate();
-    const canMidMonth = isCurrentMonth && todayDay >= 1 && todayDay < daysInMonth;
-    const midMonth =
-      canMidMonth && mode !== 'full_month'
-        ? {
-            preserveThroughDay: todayDay,
-            respectRemainingQuota: mode === 'future_with_remaining',
-          }
-        : undefined;
-
-    const result = runAutoScheduleForMonth(
-      role,
-      yearMonth,
-      employees,
-      action === 1 ? 'ACTION1_DEFAULT' : 'ACTION2_SPLIT_TOPUP',
-      midMonth
+        return a;
+      })
     );
-    setPendingAutoAction(action);
-    setAutoResult(result);
-    setIsAutoModalOpen(true);
-  };
-
-  /** Action 1 giữa tháng: hỏi cách xử lý ngày quá khứ / hôm nay */
-  const handleAutoScheduleClick = (action: 1 | 2) => {
-    const todayDay = now.getDate();
-    const needsPastPrompt =
-      action === 1 && isCurrentMonth && todayDay >= 1 && todayDay < daysInMonth;
-
-    if (needsPastPrompt) {
-      setIsMidMonthPastPromptOpen(true);
-      return;
-    }
-
-    // Action 2 giữa tháng: không đụng quá khứ/hôm nay, chỉ bù từ ngày mai
-    if (action === 2 && isCurrentMonth && todayDay >= 1 && todayDay < daysInMonth) {
-      handleRunAutoSchedule(2, 'future_only');
-      return;
-    }
-
-    handleRunAutoSchedule(action, 'full_month');
-  };
-
-  const handleMidMonthRescheduleAll = () => {
-    setIsMidMonthPastPromptOpen(false);
-    handleRunAutoSchedule(1, 'full_month');
-  };
-
-  const handleMidMonthKeepPastAndFillFuture = () => {
-    setIsMidMonthPastPromptOpen(false);
-    handleRunAutoSchedule(1, 'future_with_remaining');
-  };
-
-  const handleDismissMidMonthPastPrompt = () => {
-    setIsMidMonthPastPromptOpen(false);
-  };
-
-  const handleConfirmAutoSchedule = () => {
-    if (autoResult) updateDraftEmployees(autoResult.employees);
-    if (pendingAutoAction === 1) setAutoStep('action1_done');
-    if (pendingAutoAction === 2) setAutoStep('action2_done');
-    setIsAutoModalOpen(false);
-    setAutoResult(null);
-    setPendingAutoAction(null);
-  };
-
-  const handleFileSelected = async (file: File) => {
-    setUploadProcessingFileName(file.name);
-    setIsUploadProcessing(true);
-    try {
-      setPreviewFileName(file.name);
-      const mockRows = MOCK_EXCEL_IMPORT_PREVIEW[role];
-      // Demo preview theo đầy đủ roster hiện tại (không còn chỉ 2 dòng mock),
-      // giữ số lượng NV thực tế để người dùng dễ đối chiếu trước khi confirm.
-      const merged = employees.map((emp, idx) => {
-        const mock = mockRows[idx % mockRows.length];
-        return {
-          ...emp,
-          assignments: { ...mock.assignments },
-        };
-      });
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      setPreviewEmployees(merged);
-      setIsPreviewOpen(true);
-    } finally {
-      setIsUploadProcessing(false);
-      setUploadProcessingFileName('');
-    }
-  };
-
-  const handleConfirmImport = () => {
-    const baseWarning =
-      `Bạn sắp áp dụng lịch upload lên hệ thống.\n` +
-      `Thao tác này sẽ ảnh hưởng đến ca hiện tại của nhân viên (${previewImpact.changedEmployees} NV, ${previewImpact.changedCells} ô thay đổi).`;
-    if (previewImpact.changedPastOrToday > 0) {
-      const ok = window.confirm(
-        `${baseWarning}\n` +
-        `Có ${previewImpact.changedPastOrToday} thay đổi vào ngày đã/đang diễn ra. Bạn vẫn muốn tiếp tục?`
+    showToast(`✅ Đã check-in nhận ca (${data.vehiclePlate} lúc ${nowStr})`);
+    setCheckinModalItem(null);
+    if (detailModalItem?.id === data.assignmentId) {
+      setDetailModalItem((prev) =>
+        prev
+          ? {
+              ...prev,
+              vehiclePlate: data.vehiclePlate,
+              vehicleType: data.vehicleType || prev.vehicleType,
+              checkinAt: nowStr,
+              startKm: data.startKm,
+              toolCondition: data.toolCondition,
+              toolItems: data.toolItems,
+              checkinNote: data.checkinNote,
+              status: 'IN_PROGRESS',
+            }
+          : null
       );
-      if (!ok) return;
-    } else {
-      const ok = window.confirm(`${baseWarning}\nBạn có chắc muốn xác nhận import?`);
-      if (!ok) return;
     }
-    if (previewEmployees) updateDraftEmployees(previewEmployees);
-    setIsPreviewOpen(false);
-    setPreviewEmployees(null);
-    setAutoStep('idle');
   };
 
-  const updateAssignment = (
-    employeeId: string,
-    day: number,
-    shiftKey: string | null,
-    closeEditor = true
-  ) => {
-    updateDraftEmployees((prev) =>
-      prev.map((e) =>
-        e.id === employeeId
-          ? { ...e, assignments: { ...e.assignments, [day]: shiftKey || null } }
-          : e
-      )
-    );
-    if (closeEditor) setEditingCell(null);
-    setAutoStep('idle');
-  };
-
-  const parseAssignmentKeys = (raw: string | null): string[] =>
-    raw ? raw.split('+').map((s) => s.trim()).filter(Boolean) : [];
-
-  const previewImpact = useMemo(() => {
-    if (!previewEmployees) return { changedEmployees: 0, changedCells: 0, changedPastOrToday: 0 };
-    const currentByCode = new Map(employees.map((e) => [e.code, e]));
-    let changedEmployees = 0;
-    let changedCells = 0;
-    let changedPastOrToday = 0;
-    previewEmployees.forEach((p) => {
-      const current = currentByCode.get(p.code);
-      if (!current) return;
-      let empChanged = false;
-      dayNumbers.forEach((day) => {
-        const before = current.assignments[day] ?? null;
-        const after = p.assignments[day] ?? null;
-        if (before !== after) {
-          changedCells += 1;
-          empChanged = true;
-          if (isCurrentMonth && day <= now.getDate()) changedPastOrToday += 1;
+  const handleSaveCheckout = (data: {
+    assignmentId: string;
+    endKm: number;
+    toolCondition: 'GOOD' | 'BROKEN' | 'MISSING';
+    toolItems: ToolInspectionItem[];
+    checkoutNote?: string;
+  }) => {
+    const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    setAssignments((prev) =>
+      prev.map((a) => {
+        if (a.id === data.assignmentId) {
+          return {
+            ...a,
+            checkoutAt: nowStr,
+            endKm: data.endKm,
+            toolCondition: data.toolCondition,
+            toolItems: data.toolItems,
+            checkoutNote: data.checkoutNote,
+            status: 'COMPLETED' as ShiftStatus,
+          };
         }
-      });
-      if (empChanged) changedEmployees += 1;
-    });
-    return { changedEmployees, changedCells, changedPastOrToday };
-  }, [previewEmployees, employees, dayNumbers, isCurrentMonth, now]);
-
-  const previewDailyByShiftKey = useMemo(() => {
-    if (!previewEmployees) return [];
-    const keys = shiftKeys.filter((k) => k !== 'OT');
-    return dayNumbers.map((day) => {
-      const counts: Record<string, number> = {};
-      keys.forEach((k) => {
-        counts[k] = 0;
-      });
-      previewEmployees.forEach((emp) => {
-        const raw = emp.assignments[day];
-        if (!raw) return;
-        raw
-          .split('+')
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .forEach((k) => {
-            if (counts[k] !== undefined) counts[k] += 1;
-          });
-      });
-      return { day, counts };
-    });
-  }, [previewEmployees, dayNumbers, shiftKeys]);
-
-  const previewSessionSummary = useMemo(() => {
-    return dayNumbers.map((day) => {
-      const dayData = previewDailyByShiftKey.find((x) => x.day === day)?.counts ?? {};
-      const morning =
-        (dayData.C1 ?? 0) +
-        ((dayData.CG1 ?? 0) + (dayData.CG2 ?? 0)) * 0.5;
-      const afternoon =
-        (dayData.C2 ?? 0) +
-        ((dayData.CG3 ?? 0) + (dayData.CG4 ?? 0) + (dayData.CG5 ?? 0) + (dayData.CG6 ?? 0)) * 0.5;
-      const night = dayData.C3 ?? 0;
-      return { day, morning, afternoon, night, total: morning + afternoon + night };
-    });
-  }, [dayNumbers, previewDailyByShiftKey]);
-
-  const getShiftCoverageStat = (day: number, shiftKey: string) =>
-    shiftCoverageStats.get(`${day}-${shiftKey}`);
-
-  const getDailySummaryStat = (day: number) => dailySummaryStats.get(day);
-  const getSessionSummaryStat = (day: number) => sessionSummaryStats.get(day);
-
-  const renderCoverageCell = (shift: ShiftDefinition, day: number) => {
-    const stat = getShiftCoverageStat(day, shift.shiftKey);
-    if (!stat) return <td key={day} className="border-r" />;
-
-    const warn = primaryWarning(stat.warnings);
-    const delta =
-      warn?.type === 'UNDERSTAFFED'
-        ? stat.assigned - stat.minStaff
-        : warn?.type === 'OVERSTAFFED'
-          ? stat.assigned - stat.maxStaff
-          : 0;
-    const isOk = !warn && stat.assigned >= stat.minStaff && stat.assigned <= stat.maxStaff;
-
-    return (
-      <td key={day} className="border-r px-0.5 py-0.5">
-        <div
-          className={`h-9 rounded flex flex-col items-center justify-center leading-none ${
-            warn
-              ? `${WARNING_META[warn.type].summary} border`
-              : isOk
-                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                : stat.assigned === 0
-                  ? 'bg-gray-50 text-gray-300 border border-gray-100'
-                  : 'bg-white text-gray-600 border border-gray-200'
-          }`}
-          title={
-            stat.warnings.map((w) => w.message).join('\n') ||
-            `${shift.shiftKey}: ${stat.assigned} người (cần ${stat.minStaff}–${stat.maxStaff})`
-          }
-        >
-          <span className="font-mono text-[11px] font-black">{stat.assigned}</span>
-          {warn ? (
-            <span className="flex items-center gap-0.5 mt-0.5 text-[8px] font-bold">
-              <AlertTriangle size={8} />
-              {delta > 0 ? `+${delta}` : delta}
-            </span>
-          ) : isOk ? (
-            <span className="text-[7px] text-emerald-600 mt-0.5">OK</span>
-          ) : stat.assigned > 0 ? (
-            <span className="text-[7px] text-gray-400 mt-0.5">
-              /{stat.minStaff}
-            </span>
-          ) : null}
-        </div>
-      </td>
+        return a;
+      })
     );
-  };
-
-  const renderDailySummaryCell = (day: number) => {
-    const stat = getDailySummaryStat(day);
-    if (!stat) return <td key={day} className="border-r" />;
-    const hasShortage = stat.shortage > 0;
-    return (
-      <td key={day} className="border-r px-0.5 py-0.5">
-        <div
-          className={`h-9 rounded flex flex-col items-center justify-center leading-none border ${
-            hasShortage
-              ? 'bg-red-50 border-red-200 text-red-800'
-              : 'bg-emerald-50 border-emerald-100 text-emerald-700'
-          }`}
-          title={
-            hasShortage
-              ? `Tổng quy đổi thiếu ${formatShiftUnits(stat.shortage)} (${formatShiftUnits(stat.totalEquivalent)}/${formatShiftUnits(stat.totalRequired)})`
-              : `Đủ tổng quy đổi (${formatShiftUnits(stat.totalEquivalent)}/${formatShiftUnits(stat.totalRequired)})`
-          }
-        >
-          <span className="font-mono text-[10px] font-black">
-            {formatShiftUnits(stat.totalEquivalent)}/{formatShiftUnits(stat.totalRequired)}
-          </span>
-          <span className="text-[8px] mt-0.5">
-            {hasShortage ? `-${formatShiftUnits(stat.shortage)}` : 'OK'}
-          </span>
-        </div>
-      </td>
-    );
-  };
-
-  const monthLabel = `${yearMonth.slice(5, 7)}/${yearMonth.slice(0, 4)}`;
-
-  const handleReloadDemo = () => {
-    const next = buildEmployees(role, yearMonth);
-    setSavedEmployees(next);
-    setDraftEmployees(isEditMode ? cloneEmployees(next) : null);
-    setEditingCell(null);
-    setPastEditPrompt(null);
-    setAutoStep('idle');
+    showToast(`✅ Đã check-out kết thúc ca làm việc (${nowStr})`);
+    setCheckoutModalItem(null);
+    if (detailModalItem?.id === data.assignmentId) {
+      setDetailModalItem((prev) =>
+        prev
+          ? {
+              ...prev,
+              checkoutAt: nowStr,
+              endKm: data.endKm,
+              toolCondition: data.toolCondition,
+              toolItems: data.toolItems,
+              checkoutNote: data.checkoutNote,
+              status: 'COMPLETED',
+            }
+          : null
+      );
+    }
   };
 
   return (
-    <div className="space-y-3 animate-in fade-in duration-500 w-full min-w-0 max-w-full font-['Inter']">
-      {/* Compact header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-black text-gray-800 uppercase tracking-tight">
-            Lịch ca tháng {monthLabel}
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Tổng hợp theo buổi: ca gãy = 0.5, ca nguyên = 1
-          </p>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
-            <button
-              type="button"
-              onClick={() => handleScreenModeChange('view')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                screenMode === 'view'
-                  ? 'bg-slate-700 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <Eye size={13} />
-              Xem
-            </button>
-            <button
-              type="button"
-              onClick={() => handleScreenModeChange('edit')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                screenMode === 'edit'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <Pencil size={13} />
-              Cập nhật
-            </button>
+      )}
+
+      {/* Scope Bar */}
+      <PartnerScopeBar onPersonaChange={setPersona} />
+
+      {/* Main Container */}
+      <div className="p-4 md:p-6 max-w-[1600px] w-full mx-auto flex-1 flex flex-col">
+        {/* Header Title */}
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight">Quản lý ca làm</h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Phân công lịch trực cứu hộ, theo dõi độ phủ ca và điều phối nhân sự theo thời gian thực
+            </p>
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-bold text-gray-600 hover:border-vetc-green"
-          >
-            <Download size={13} />
-            Tải mẫu
-          </button>
-          {isEditMode && (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploadProcessing}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${
-                isUploadProcessing
-                  ? 'bg-green-400 text-white cursor-not-allowed'
-                  : 'bg-vetc-green text-white hover:bg-green-700'
-              }`}
-            >
-              {isUploadProcessing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-              {isUploadProcessing ? 'Đang xử lý...' : 'Upload Excel'}
-            </button>
+
+        </div>
+
+        {/* Ant Design Card Container */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
+          {/* Tabs Bar & Controls */}
+          <div className="border-b border-slate-200 px-4 md:px-6 pt-3 flex flex-wrap items-center justify-between gap-3 bg-white">
+            {/* Tabs List */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('1')}
+                className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                  activeTab === '1'
+                    ? 'border-[#01a651] text-[#01a651]'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <CalendarIcon className="w-4 h-4" />
+                Lịch tháng
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('2')}
+                className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                  activeTab === '2'
+                    ? 'border-[#01a651] text-[#01a651]'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                Tổng quan
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('3')}
+                className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                  activeTab === '3'
+                    ? 'border-[#01a651] text-[#01a651]'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                Dạng bảng
+              </button>
+            </div>
+
+            {/* Top Extra Controls */}
+            <div className="flex items-center gap-2.5 pb-2">
+              <button
+                type="button"
+                onClick={handleRefreshAll}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:border-[#01a651] hover:text-[#01a651] text-slate-700 rounded-md text-xs font-medium transition shadow-sm"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#01a651]' : ''}`} />
+                <span>Refresh</span>
+              </button>
+
+              {/* Select Partner */}
+              <select
+                value={selectedPartnerId}
+                onChange={(e) => setSelectedPartnerId(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#01a651] shadow-sm min-w-[160px]"
+              >
+                <option value="partner-vetc">VETC RSA Partner</option>
+                <option value="partner-hanoi">Cứu hộ Miền Bắc</option>
+                <option value="partner-saigon">Cứu hộ Sài Gòn</option>
+              </select>
+
+              {/* Select Station */}
+              <select
+                value={selectedStationId}
+                onChange={(e) => setSelectedStationId(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#01a651] shadow-sm min-w-[190px]"
+              >
+                {MOCK_STATIONS_FOR_SHIFT.map((station) => (
+                  <option key={station.id} value={station.id}>
+                    {station.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Nút mô phỏng App Tài xế: Check-in / Check-out (FDD FL-M2-03) */}
+              <button
+                type="button"
+                onClick={() => setAppSimulatorOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#005d2d] hover:bg-[#004722] text-white rounded-md text-xs font-bold transition shadow-xs"
+                title="Mô phỏng app mobile tài xế xem ca, check-in và check-out theo FDD FL-M2-03"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-emerald-300" />
+                <span>📱 App Tài xế: Check-in / out</span>
+              </button>
+            </div>
+          </div>
+
+          {/* TAB 1: LỊCH THÁNG (MONTHLY CALENDAR) */}
+          {activeTab === '1' && (
+            <div className="flex-1 flex flex-col md:flex-row min-h-[640px] bg-slate-100/70">
+              {/* Sidebar: Tài xế sẵn sàng */}
+              <div className="w-full md:w-72 bg-white border-r border-slate-200 flex flex-col shrink-0">
+                <div className="p-3.5 border-b border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-sm text-slate-900">Tài xế sẵn sàng</h3>
+                    <span className="text-[11px] px-2 py-0.5 bg-emerald-50 text-[#005d2d] rounded-full font-medium">
+                      {stationDrivers.length} nhân sự
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Kéo tài xế vào ca làm mong muốn</p>
+                  <div className="mt-2.5 relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm tài xế, SĐT..."
+                      value={searchDriver}
+                      onChange={(e) => setSearchDriver(e.target.value)}
+                      className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:bg-white focus:border-[#01a651]"
+                    />
+                  </div>
+                </div>
+
+                {/* Danh sách tài xế draggable */}
+                <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+                  {filteredSidebarDrivers.map((driver) => (
+                    <div
+                      key={driver.id}
+                      draggable
+                      onDragStart={(e) =>
+                        handleDragStart(e, {
+                          type: 'DRIVER',
+                          driverId: driver.id,
+                          driverName: driver.name,
+                        })
+                      }
+                      className="p-2.5 bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-lg cursor-grab active:cursor-grabbing transition shadow-2xs group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                          {driver.name.split(' ').pop()?.charAt(0) || 'T'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-xs text-slate-800 truncate group-hover:text-[#005d2d]">
+                            {driver.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                            <span>{driver.phone}</span>
+                            <span>•</span>
+                            <span className="font-mono text-slate-400">{driver.code}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredSidebarDrivers.length === 0 && (
+                    <div className="text-center py-8 text-xs text-slate-400">Không tìm thấy tài xế phù hợp</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Lịch và view chính */}
+              <div className="flex-1 flex flex-col min-w-0 bg-white">
+                {/* ShiftCalendarHeader */}
+                <div className="p-3 md:px-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-white">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePrev}
+                      className="p-1.5 hover:bg-slate-100 rounded-md border border-slate-200 text-slate-600 transition"
+                      title="Trước"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="font-bold text-sm md:text-base text-slate-800 min-w-[200px] text-center">
+                      {getHeaderTitle()}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleNext}
+                      className="p-1.5 hover:bg-slate-100 rounded-md border border-slate-200 text-slate-600 transition"
+                      title="Sau"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentDate(new Date())}
+                      className="px-3 py-1 text-xs font-medium border border-slate-300 rounded-md text-slate-700 hover:border-[#01a651] hover:text-[#01a651] transition"
+                    >
+                      Hôm nay
+                    </button>
+                  </div>
+
+                  {/* Switch view Ngày / Tuần / Tháng */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 hidden sm:inline">Chế độ xem:</span>
+                    <div className="inline-flex rounded-md border border-slate-200 p-0.5 bg-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('day')}
+                        className={`px-3 py-1 text-xs font-semibold rounded ${
+                          viewMode === 'day' ? 'bg-white text-[#01a651] shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Ngày
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('week')}
+                        className={`px-3 py-1 text-xs font-semibold rounded ${
+                          viewMode === 'week' ? 'bg-white text-[#01a651] shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Tuần
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('month')}
+                        className={`px-3 py-1 text-xs font-semibold rounded ${
+                          viewMode === 'month' ? 'bg-white text-[#01a651] shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Tháng
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Calendar Body View */}
+                <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+                  {/* VIEW DAY */}
+                  {viewMode === 'day' && (
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
+                      <div className="flex bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">
+                        <div className="w-32 md:w-36 p-3 text-center border-r border-slate-200">Khung giờ</div>
+                        <div className="flex-1 p-3">Phân công ca làm</div>
+                      </div>
+
+                      <div className="divide-y divide-slate-200">
+                        {(driverShiftDefs.length > 0 ? driverShiftDefs : [
+                          { id: 'shift-c1', name: 'Ca 1 (Sáng)', timeStart: '07:00', timeEnd: '15:00', minStaff: 2, maxStaff: 4 },
+                          { id: 'shift-c2', name: 'Ca 2 (Chiều)', timeStart: '13:30', timeEnd: '21:30', minStaff: 2, maxStaff: 4 },
+                          { id: 'shift-cd', name: 'Ca đêm', timeStart: '21:30', timeEnd: '07:00', minStaff: 1, maxStaff: 2 },
+                        ] as any[]).map((shift) => {
+                          const dateStr = formatDateStr(currentDate);
+                          const locked = isStrictPast(dateStr);
+                          const assignedInThisShift = assignments.filter(
+                            (a) => a.date === dateStr && a.shiftConfigId === shift.id
+                          );
+                          const dvMin: number = (shift as any).minStaff ?? 1;
+                          const dvMax: number | undefined = (shift as any).maxStaff;
+                          const dvState = calcStaffingState(assignedInThisShift.length, dvMin, dvMax);
+                          const dvFull = dvState === 'FULL' || dvState === 'OVER';
+
+                          return (
+                            <div key={shift.id} className="flex min-h-[110px]">
+                              {/* Cột Khung Giờ */}
+                              <div className="w-32 md:w-36 p-4 border-r border-slate-200 bg-slate-50/70 flex flex-col items-center justify-center text-center">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-[#005d2d] border border-emerald-200 rounded-md font-bold text-xs">
+                                  <Clock className="w-3 h-3" />
+                                  {shift.timeStart}
+                                </span>
+                                <span className="text-[11px] text-slate-400 my-1">đến</span>
+                                <span className="inline-flex items-center px-2.5 py-1 bg-emerald-50 text-[#005d2d] border border-emerald-200 rounded-md font-bold text-xs">
+                                  {shift.timeEnd}
+                                </span>
+                              </div>
+
+                              {/* Cột Phân Công */}
+                              <div
+                                onDragOver={!locked && !dvFull ? handleDragOver : undefined}
+                                onDrop={!locked && !dvFull ? () => handleDropSlot(dateStr, shift as any) : undefined}
+                                title={dvFull && !locked ? `Ca đã đủ ${dvMax} người, không thể thêm` : undefined}
+                                className={`flex-1 p-4 transition-colors ${
+                                  locked ? 'bg-slate-50/40' : dvFull ? 'bg-slate-100/60' : 'bg-white hover:bg-slate-50/20'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-bold text-sm text-slate-800">{shift.name}</h4>
+                                    {locked && (
+                                      <span title="Ca đã qua, không thể chỉnh sửa">
+                                        <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">
+                                      {assignedInThisShift.length}{dvMax != null ? `/${dvMax}` : ''} người
+                                    </span>
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${staffingBadgeStyle[dvState]}`}
+                                      title={dvFull ? `Ca đã đủ ${dvMax} người` : undefined}
+                                    >
+                                      {staffingLabel(dvState, assignedInThisShift.length, dvMin, dvMax)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={`min-h-[50px] p-2 rounded-lg flex flex-wrap gap-2 items-center ${
+                                    locked ? 'border border-transparent' : dvFull ? 'border border-dashed border-slate-400 bg-slate-50/60' : 'border border-dashed border-slate-300'
+                                  }`}
+                                >
+                                  {assignedInThisShift.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      draggable={!locked}
+                                      onDragStart={(e) =>
+                                        handleDragStart(e, {
+                                          type: 'ASSIGNMENT',
+                                          driverId: item.driverId,
+                                          driverName: item.driverName,
+                                          assignmentId: item.id,
+                                          sourceDate: dateStr,
+                                        })
+                                      }
+                                      onClick={() => setDetailModalItem(item)}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#01a651] text-white rounded-md text-xs font-medium shadow-xs cursor-pointer group hover:bg-[#008f45] transition"
+                                      title="Bấm để xem chi tiết / Check-in / Check-out"
+                                    >
+                                      <User className="w-3.5 h-3.5" />
+                                      <span>{item.driverName}</span>
+
+                                      {/* Trạng thái Check-in */}
+                                      {item.checkinAt ? (
+                                        <span className="px-1 py-0.2 bg-black/20 rounded text-[9px] font-mono text-emerald-100 flex items-center gap-0.5">
+                                          <Check className="w-2.5 h-2.5" />
+                                          <span>{item.checkinAt}</span>
+                                          {item.vehiclePlate && (
+                                            <span className="text-[8px] opacity-80">· {item.vehiclePlate.split('-')[0]}</span>
+                                          )}
+                                        </span>
+                                      ) : null}
+
+                                      {/* Quick Check-in action button */}
+                                      {!item.checkinAt && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCheckin(item);
+                                          }}
+                                          className="px-1.5 py-0.2 bg-amber-500 hover:bg-amber-600 text-white rounded text-[9px] font-bold shadow-2xs"
+                                          title="Check-in nhận ca"
+                                        >
+                                          In
+                                        </button>
+                                      )}
+
+                                      {/* Quick Check-out action button */}
+                                      {item.checkinAt && !item.checkoutAt && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCheckout(item);
+                                          }}
+                                          className="px-1.5 py-0.2 bg-blue-500 hover:bg-blue-600 text-white rounded text-[9px] font-bold shadow-2xs"
+                                          title="Check-out kết thúc ca"
+                                        >
+                                          Out
+                                        </button>
+                                      )}
+
+                                      {!locked && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemoveAssignment(item.id, item.driverName, shift.name, dateStr);
+                                          }}
+                                          className="p-0.5 hover:bg-black/20 rounded transition"
+                                          title="Gỡ khỏi ca"
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+
+                                  {!locked && assignedInThisShift.length === 0 && (
+                                    <div className="w-full text-center text-xs text-slate-400 py-2">
+                                      Kéo thả tài xế vào đây
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* VIEW WEEK / MONTH GRID */}
+                  {(viewMode === 'week' || viewMode === 'month') && (
+                    <div className="bg-white rounded-lg border border-slate-300 shadow-xs overflow-hidden">
+                      {/* 7 Cột thứ */}
+                      <div className="grid grid-cols-7 bg-slate-100 border-b border-slate-300 text-xs font-bold text-slate-700 text-center">
+                        {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((w, idx) => (
+                          <div
+                            key={w}
+                            className={`p-2.5 border-r border-slate-200 last:border-r-0 ${
+                              idx >= 5 ? 'bg-slate-200/60 text-slate-800' : ''
+                            }`}
+                          >
+                            {w}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Lưới các ô ngày */}
+                      <div className="grid grid-cols-7 divide-x divide-y divide-slate-200 bg-slate-200">
+                        {daysToShow.map((day) => {
+                          const dateStr = formatDateStr(day);
+                          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                          const isTodayDate = isSameDay(day, new Date());
+                          const locked = isStrictPast(dateStr);
+                          const inCurrentMonth = day.getMonth() === currentDate.getMonth();
+
+                          // Các ca trong ngày
+                          const dayShifts: any[] = driverShiftDefs.length > 0 ? driverShiftDefs : [
+                            { id: 'shift-c1', name: 'Ca 1 (Sáng)', timeStart: '07:00', timeEnd: '15:00', minStaff: 2, maxStaff: 4 },
+                            { id: 'shift-c2', name: 'Ca 2 (Chiều)', timeStart: '13:30', timeEnd: '21:30', minStaff: 2, maxStaff: 4 },
+                            { id: 'shift-cd', name: 'Ca đêm', timeStart: '21:30', timeEnd: '07:00', minStaff: 1, maxStaff: 2 },
+                          ];
+
+                          return (
+                            <div
+                              key={dateStr}
+                              className={`p-2 min-h-[140px] flex flex-col justify-between transition-colors ${
+                                isWeekend ? 'bg-slate-100/70' : 'bg-white'
+                              } ${!inCurrentMonth && viewMode === 'month' ? 'opacity-40' : ''}`}
+                            >
+                              {/* Header ngày */}
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {viewMode === 'week' ? formatDisplayDate(dateStr) : ''}
+                                </span>
+                                <span
+                                  className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                                    isTodayDate
+                                      ? 'bg-[#01a651] text-white shadow-xs'
+                                      : 'text-slate-700'
+                                  }`}
+                                >
+                                  {day.getDate()}
+                                </span>
+                              </div>
+
+                              {/* Danh sách các ca trong ngày */}
+                              <div className="space-y-1.5 flex-1">
+                                {dayShifts.map((shift) => {
+                                  const assigned = assignments.filter(
+                                    (a) => a.date === dateStr && a.shiftConfigId === shift.id
+                                  );
+                                  const gMin: number = (shift as any).minStaff ?? 1;
+                                  const gMax: number | undefined = (shift as any).maxStaff;
+                                  const gState = calcStaffingState(assigned.length, gMin, gMax);
+                                  const gFull = gState === 'FULL' || gState === 'OVER';
+
+                                  return (
+                                    <div
+                                      key={shift.id}
+                                      onDragOver={!locked && !gFull ? handleDragOver : undefined}
+                                      onDrop={!locked && !gFull ? () => handleDropSlot(dateStr, shift as any) : undefined}
+                                      title={gFull && !locked ? `Ca đã đủ ${gMax} người` : undefined}
+                                      className={`p-1.5 rounded-md border text-[11px] transition ${
+                                        locked
+                                          ? 'bg-slate-100 border-slate-200 cursor-not-allowed'
+                                          : gFull
+                                          ? 'bg-slate-50 border-slate-300 opacity-75'
+                                          : 'bg-[#e6fbed] border-[#b7eb8f] hover:border-[#01a651]'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between font-bold text-[#005d2d] mb-0.5">
+                                        <span className="truncate text-[10px]">{shift.name}</span>
+                                        <span className={`inline-flex px-1 py-0 rounded text-[9px] font-bold border ${staffingBadgeStyle[gState]}`}>
+                                          {staffingLabel(gState, assigned.length, gMin, gMax)}
+                                        </span>
+                                      </div>
+
+                                      {/* Danh sách nhân viên trong ca */}
+                                      <div
+                                        onClick={() => setDayModalDate(day)}
+                                        className="space-y-1 cursor-pointer"
+                                        title="Bấm để xem & chỉnh sửa chi tiết ngày"
+                                      >
+                                        {assigned.slice(0, 3).map((staff) => (
+                                          <div
+                                            key={staff.id}
+                                            draggable={!locked}
+                                            onDragStart={(e) => {
+                                              e.stopPropagation();
+                                              handleDragStart(e, {
+                                                type: 'ASSIGNMENT',
+                                                driverId: staff.driverId,
+                                                driverName: staff.driverName,
+                                                assignmentId: staff.id,
+                                                sourceDate: dateStr,
+                                              });
+                                            }}
+                                            className="px-1.5 py-0.5 bg-white border border-emerald-200 rounded text-[10px] text-slate-800 font-medium truncate flex items-center justify-between hover:border-[#01a651]"
+                                          >
+                                            <div className="flex items-center gap-1 truncate">
+                                              {staff.checkinAt && (
+                                                <span className="text-[8px] font-bold text-emerald-600 shrink-0" title={`Đã check-in: ${staff.checkinAt}`}>✓</span>
+                                              )}
+                                              <span className="truncate">{staff.driverName}</span>
+                                            </div>
+                                            {staff.vehiclePlate && (
+                                              <span className="text-[9px] text-emerald-700 ml-1 font-mono shrink-0">
+                                                {staff.vehiclePlate.split('-')[0]}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ))}
+
+                                        {assigned.length > 3 && (
+                                          <span className="inline-block px-1.5 py-0.2 bg-[#01a651] text-white rounded text-[9px] font-bold">
+                                            +{assigned.length - 3}
+                                          </span>
+                                        )}
+                                        {assigned.length === 0 && !locked && (
+                                          <div className="text-[10px] text-slate-400 italic text-center py-0.5">
+                                            + Thả tài xế
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ShiftCalendarFooter (Thống kê 4 số liệu) */}
+                <div className="p-3 px-5 border-t border-slate-200 bg-white flex flex-wrap items-center justify-between gap-4 text-xs text-slate-600">
+                  <div className="flex items-center gap-6">
+                    <div>
+                      Tổng lượt phân công: <strong className="text-slate-900">{calendarStats.totalAssignments}</strong>
+                    </div>
+                    <div>
+                      Số tài xế được phân công: <strong className="text-slate-900">{calendarStats.assignedDrivers}</strong>
+                    </div>
+                    <div>
+                      Số ngày có ca: <strong className="text-emerald-700">{calendarStats.daysWithShifts}</strong>
+                    </div>
+                    <div>
+                      Số ngày chưa có phân công: <strong className="text-amber-700">{calendarStats.daysNoAssignments}</strong>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    💡 Kéo thả thẻ tài xế từ thanh bên trái hoặc giữa các ca để điều chuyển
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileSelected(file);
-              e.target.value = '';
-            }}
-          />
+
+          {/* TAB 2: TỔNG QUAN (OVERVIEW) */}
+          {activeTab === '2' && (
+            <div className="p-4 md:p-6 bg-slate-50 flex-1 space-y-4">
+              {/* Top Controls: Nút tạo ca làm & Lọc khoảng ngày */}
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-lg border border-slate-200 shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-slate-700">Khoảng ngày:</span>
+                  <input
+                    type="date"
+                    value={overviewDateRange[0]}
+                    onChange={(e) => setOverviewDateRange([e.target.value, overviewDateRange[1]])}
+                    className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                  />
+                  <span className="text-slate-400 text-xs">đến</span>
+                  <input
+                    type="date"
+                    value={overviewDateRange[1]}
+                    onChange={(e) => setOverviewDateRange([overviewDateRange[0], e.target.value])}
+                    className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#01a651] hover:bg-[#008c44] text-white text-xs font-semibold rounded-md shadow-xs transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tạo ca làm</span>
+                </button>
+              </div>
+
+              {/* Bố cục 2 Cột: Cột trái (Thống kê 2 Card) & Cột phải (Ca thiếu nhân viên) */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                {/* Cột trái (4/12) */}
+                <div className="lg:col-span-4 space-y-4">
+                  {/* Card Thống kê ca làm */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                    <h3 className="font-bold text-sm text-slate-800 pb-3 border-b border-slate-100">
+                      Thống kê ca làm hôm nay
+                    </h3>
+                    <div className="mt-3 space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>Tổng ca hôm nay:</span>
+                        <strong className="text-slate-900 text-sm">{todayStats.totalToday}</strong>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>Ca đủ nhân sự:</span>
+                        <strong className="text-[#01a651] text-sm">{todayStats.staffedCount}</strong>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>Ca thiếu nhân sự:</span>
+                        <strong className="text-rose-600 text-sm">{todayStats.understaffedCount}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Nhân viên sẵn sàng */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <User className="w-4 h-4 text-slate-500" />
+                      <h3 className="font-bold text-sm text-slate-800">Nhân viên sẵn sàng</h3>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">Thống kê nhân viên theo ngày hôm nay</p>
+
+                    <div className="mt-3 space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>Tổng nhân viên hoạt động:</span>
+                        <strong className="text-slate-900 text-sm">{todayStats.totalActive}</strong>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>Nhân viên sẵn sàng:</span>
+                        <strong className="text-[#01a651] text-sm">{todayStats.readyCount}</strong>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>Nhân viên đã phân công:</span>
+                        <strong className="text-blue-600 text-sm">{todayStats.assignedCount}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cột phải (8/12): Danh sách Ca thiếu nhân viên */}
+                <div className="lg:col-span-8 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+                  <div className="flex items-center gap-2.5 text-amber-600 pb-2">
+                    <AlertTriangle className="w-5 h-5" />
+                    <h3 className="font-bold text-base text-slate-900">Ca thiếu nhân viên</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Các ca chưa đủ số lượng nhân sự tối thiểu theo cấu hình trạm. Bấm "Thêm NV" để bổ sung nhân sự.
+                  </p>
+
+                  <div className="space-y-3">
+                    {understaffedShifts.map((shift, idx) => (
+                      <div
+                        key={`${shift.shiftDefId}-${shift.date}-${idx}`}
+                        className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition shadow-2xs"
+                      >
+                        <div className="flex items-center gap-3">
+                          {/* Deficit badge vuông */}
+                          <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 font-bold text-base flex items-center justify-center shrink-0 border border-rose-100 shadow-2xs">
+                            {shift.assignedCount}
+                          </div>
+                          <div>
+                            <div className="font-bold text-sm text-slate-900">
+                              {shift.shiftName} — {formatDisplayDate(shift.date)}
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {shift.startTime} – {shift.endTime} • Đã phân công{' '}
+                              <strong className="text-slate-800">{shift.assignedCount}</strong> / Yêu cầu tối thiểu{' '}
+                              <strong className="text-rose-600">{shift.minRequired}</strong> NV
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="px-2.5 py-1 bg-rose-100 text-rose-700 font-bold text-xs rounded-full">
+                            Thiếu {shift.minRequired - shift.assignedCount} NV
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUnderstaffedShift(shift);
+                              setAddStaffDriverId('');
+                              setAddStaffModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#01a651] hover:bg-[#008c44] text-white text-xs font-semibold rounded-md shadow-xs transition"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm NV</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {understaffedShifts.length === 0 && (
+                      <div className="text-center py-12 text-slate-400 text-xs">
+                        <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+                        Tất cả các ca trong khoảng ngày đều đã đáp ứng đầy đủ nhân sự!
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: DẠNG BẢNG (SHIFT TABLE VIEW) */}
+          {activeTab === '3' && (
+            <div className="p-4 md:p-6 bg-slate-50 flex-1 space-y-4">
+              {/* Card TRA CỨU */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                <div className="flex items-center gap-2 text-slate-800 font-bold text-xs tracking-wider uppercase border-b border-slate-100 pb-2.5">
+                  <Search className="w-4 h-4 text-[#01a651]" />
+                  <span>TRA CỨU</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Khoảng ngày</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={tableSearchForm.dateRange[0]}
+                        onChange={(e) =>
+                          setTableSearchForm({
+                            ...tableSearchForm,
+                            dateRange: [e.target.value, tableSearchForm.dateRange[1]],
+                          })
+                        }
+                        className="w-full px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                      />
+                      <span className="text-slate-400 text-xs">-</span>
+                      <input
+                        type="date"
+                        value={tableSearchForm.dateRange[1]}
+                        onChange={(e) =>
+                          setTableSearchForm({
+                            ...tableSearchForm,
+                            dateRange: [tableSearchForm.dateRange[0], e.target.value],
+                          })
+                        }
+                        className="w-full px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Tên nhân viên</label>
+                    <input
+                      type="text"
+                      placeholder="Nhập tên nhân viên..."
+                      value={tableSearchForm.staffName}
+                      onChange={(e) =>
+                        setTableSearchForm({ ...tableSearchForm, staffName: e.target.value })
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Ca làm</label>
+                    <select
+                      value={tableSearchForm.shiftConfigId}
+                      onChange={(e) =>
+                        setTableSearchForm({ ...tableSearchForm, shiftConfigId: e.target.value })
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                    >
+                      <option value="">Tất cả ca làm</option>
+                      {(driverShiftDefs.length > 0 ? driverShiftDefs : [
+                        { id: 'shift-c1', name: 'Ca 1 (Sáng)' },
+                        { id: 'shift-c2', name: 'Ca 2 (Chiều)' },
+                        { id: 'shift-cd', name: 'Ca đêm' },
+                      ]).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Trạng thái</label>
+                    <select
+                      value={tableSearchForm.status}
+                      onChange={(e) =>
+                        setTableSearchForm({ ...tableSearchForm, status: e.target.value })
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                    >
+                      <option value="">Tất cả trạng thái</option>
+                      <option value="PLANNED">Đã lên lịch</option>
+                      <option value="IN_PROGRESS">Đang diễn ra</option>
+                      <option value="COMPLETED">Đã hoàn thành</option>
+                      <option value="CANCELLED">Đã hủy</option>
+                      <option value="PENDING">Đang chờ</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const def = {
+                        dateRange: [formatDateStr(new Date()), formatDateStr(new Date(Date.now() + 30 * 86400000))],
+                        staffName: '',
+                        shiftConfigId: '',
+                        status: '',
+                      };
+                      setTableSearchForm(def);
+                      setTableFilters(def);
+                      setTablePage(1);
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50 transition"
+                  >
+                    Thiết lập lại
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableFilters({ ...tableSearchForm });
+                      setTablePage(1);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-[#01a651] hover:bg-[#008c44] text-white rounded-md shadow-xs transition"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Tìm kiếm</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-xs transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tạo ca làm</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Table Ant Design Style */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold uppercase text-[11px] tracking-wider">
+                      <tr>
+                        <th className="py-3 px-4">Ngày</th>
+                        <th className="py-3 px-4">Tên nhân viên</th>
+                        <th className="py-3 px-4">Ca làm</th>
+                        <th className="py-3 px-4">Khung giờ</th>
+                        <th className="py-3 px-4">Phương tiện</th>
+                        <th className="py-3 px-4">Nhân sự</th>
+                        <th className="py-3 px-4">Check-in / Check-out</th>
+                        <th className="py-3 px-4">Trạng thái</th>
+                        <th className="py-3 px-4 text-center">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                      {paginatedTableAssignments.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50/80 transition">
+                          <td className="py-3 px-4 font-medium text-slate-900 whitespace-nowrap">
+                            {formatDisplayDate(row.date)}
+                          </td>
+                          <td className="py-3 px-4 font-semibold text-slate-800 flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                              {row.driverName.split(' ').pop()?.charAt(0) || 'T'}
+                            </div>
+                            <span>{row.driverName}</span>
+                          </td>
+                          <td className="py-3 px-4 font-medium text-slate-800">{row.shiftName}</td>
+                          <td className="py-3 px-4 text-slate-600 whitespace-nowrap font-mono text-[11px]">
+                            {row.startTime} – {row.endTime}
+                          </td>
+                          <td className="py-3 px-4">
+                            {row.vehiclePlate ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-800 text-[11px] font-mono">
+                                <Truck className="w-3 h-3 text-slate-500" />
+                                {row.vehiclePlate}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">Chưa gán</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-[11px] font-medium">
+                              {row.staffRole || 'Lái xe'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            {row.checkinAt ? (
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 font-bold text-[11px]">
+                                  <span className="text-emerald-700">✓ In: {row.checkinAt}</span>
+                                  {row.checkoutAt && <span className="text-blue-700">· Out: {row.checkoutAt}</span>}
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-mono">
+                                  {row.startKm ? `${row.startKm.toLocaleString()} km` : ''}
+                                  {row.endKm && row.startKm ? ` → +${row.endKm - row.startKm} km` : ''}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">Chưa check-in</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                shiftStatusBadgeStyles[row.status]
+                              }`}
+                            >
+                              {shiftStatusLabels[row.status]}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              {/* Xem chi tiết */}
+                              <button
+                                type="button"
+                                onClick={() => setDetailModalItem(row)}
+                                className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition"
+                                title="Xem chi tiết"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+
+                              {/* Check-in nhanh */}
+                              {!row.checkinAt && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCheckin(row)}
+                                  className="p-1 hover:bg-emerald-50 rounded text-[#01a651] transition"
+                                  title="Check-in nhận ca"
+                                >
+                                  <LogIn className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {/* Check-out nhanh */}
+                              {row.checkinAt && !row.checkoutAt && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCheckout(row)}
+                                  className="p-1 hover:bg-blue-50 rounded text-blue-600 transition"
+                                  title="Check-out kết thúc ca"
+                                >
+                                  <LogOut className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {/* Sửa ca làm */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditModalItem(row);
+                                  setEditForm({
+                                    driverId: row.driverId,
+                                    shiftConfigId: row.shiftConfigId,
+                                    date: row.date,
+                                    note: row.note || '',
+                                  });
+                                }}
+                                disabled={row.status === 'COMPLETED' || row.status === 'CANCELLED'}
+                                className="p-1 hover:bg-slate-100 rounded text-[#01a651] disabled:opacity-40 transition"
+                                title="Sửa ca làm"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+
+                              {/* Hủy ca làm */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setConfirmModal({
+                                    open: true,
+                                    title: 'Xác nhận hủy ca làm',
+                                    message: `Bạn có chắc muốn hủy ca làm này của tài xế "${row.driverName}"?`,
+                                    onConfirm: () => {
+                                      setAssignments((prev) =>
+                                        prev.map((a) => (a.id === row.id ? { ...a, status: 'CANCELLED' } : a))
+                                      );
+                                      showToast(`Đã hủy ca làm của ${row.driverName}`);
+                                    },
+                                  });
+                                }}
+                                disabled={row.status === 'COMPLETED' || row.status === 'CANCELLED'}
+                                className="p-1 hover:bg-slate-100 rounded text-rose-500 disabled:opacity-40 transition"
+                                title="Hủy ca làm"
+                              >
+                                <StopCircle className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {paginatedTableAssignments.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="py-12 text-center text-slate-400 text-xs">
+                            Không tìm thấy ca làm phù hợp với bộ lọc
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="p-3 px-4 border-t border-slate-200 bg-white flex items-center justify-between text-xs text-slate-500">
+                  <span>
+                    Hiển thị {paginatedTableAssignments.length} trên tổng số {filteredTableAssignments.length} ca
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={tablePage <= 1}
+                      onClick={() => setTablePage(tablePage - 1)}
+                      className="px-2.5 py-1 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      Trước
+                    </button>
+                    <span className="px-2 font-medium text-slate-800">Trang {tablePage}</span>
+                    <button
+                      type="button"
+                      disabled={tablePage * tablePageSize >= filteredTableAssignments.length}
+                      onClick={() => setTablePage(tablePage + 1)}
+                      className="px-2.5 py-1 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      Sau
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      <EmployeeShiftPreferenceModal
-        open={isPrefModalOpen}
-        onClose={() => setIsPrefModalOpen(false)}
-        role={role}
-        yearMonth={yearMonth}
-        shiftKeys={shiftKeys}
-        roster={employees}
-        scheduleAlreadyConfigured={scheduleAlreadyConfigured}
-        getPreference={(employeeId, shiftKey) =>
-          getShiftMonthPreferenceFor(role, yearMonth, employeeId, shiftKey)
-        }
-        onUpdatePreference={(employeeId, shiftKey, patch) =>
-          updateShiftMonthPreference(role, yearMonth, employeeId, shiftKey, patch)
-        }
-        onConfirmedChangeAfterSchedule={() => setAutoStep('idle')}
-      />
+      {/* ─── MODAL DLG-05: TẠO CA LÀM MỚI ────────────────────────────────────────── */}
+      {createModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Tạo ca làm mới</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Điền thông tin để tạo phân công ca làm việc</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateModalOpen(false)}
+                className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      {/* Main grid card */}
-      <div
-        className={`border rounded-lg shadow-sm overflow-hidden bg-white ${
-          isEditMode ? 'ring-2 ring-amber-200' : ''
-        }`}
-      >
-        {/* Toolbar: filters + compact stats */}
-        <div
-          className={`px-3 py-2 border-b flex flex-wrap items-center gap-x-4 gap-y-2 ${
-            isEditMode ? 'bg-amber-50/70' : 'bg-gray-50'
-          }`}
-        >
-          <div className="flex items-center gap-1.5">
-            {(['OSA', 'CSKH'] as ShiftRole[]).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => handleRoleChange(r)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-black border transition-all ${
-                  role === r
-                    ? 'bg-vetc-green text-white border-vetc-green'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-vetc-green'
-                }`}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+            <div className="p-5 space-y-3.5 text-xs">
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Ca làm việc <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={createForm.shiftId}
+                  onChange={(e) => setCreateForm({ ...createForm, shiftId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                >
+                  <option value="">-- Chọn ca làm --</option>
+                  {(driverShiftDefs.length > 0 ? driverShiftDefs : [
+                    { id: 'shift-c1', name: 'Ca 1 (Sáng) 07:00 – 15:00' },
+                    { id: 'shift-c2', name: 'Ca 2 (Chiều) 13:30 – 21:30' },
+                    { id: 'shift-cd', name: 'Ca đêm 21:30 – 07:00' },
+                  ]).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <input
-            type="month"
-            value={yearMonth}
-            onChange={(e) => handleMonthChange(e.target.value)}
-            className="border rounded px-2 py-1 text-xs outline-none focus:border-vetc-green bg-white"
-          />
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Ngày làm việc <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={createForm.date}
+                  onChange={(e) => setCreateForm({ ...createForm, date: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                />
+              </div>
 
-          {isEditMode ? (
-            <>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Nhân viên thực hiện <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={createForm.driverId}
+                  onChange={(e) => setCreateForm({ ...createForm, driverId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                >
+                  <option value="">-- Chọn nhân viên --</option>
+                  {stationDrivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.phone})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Ghi chú</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ghi chú phân ca nếu có..."
+                  value={createForm.note}
+                  onChange={(e) => setCreateForm({ ...createForm, note: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                />
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
               <button
                 type="button"
-                onClick={() => setIsPrefModalOpen(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black border border-gray-200 bg-white text-gray-600 hover:border-vetc-green hover:text-vetc-green transition-all"
+                onClick={() => setCreateModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
               >
-                <Settings2 size={11} />
-                Mong muốn theo ca
+                Hủy
               </button>
-              <button
-                type="button"
-                onClick={() => handleAutoScheduleClick(1)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
-              >
-                <Sparkles size={11} />
-                Sắp xếp ca mặc định
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAutoScheduleClick(2)}
-                disabled={autoStep !== 'action1_done'}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black transition-all ${
-                  autoStep === 'action1_done'
-                    ? 'bg-amber-600 text-white hover:bg-amber-700'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-                title={autoStep === 'action1_done' ? 'Bù ca gãy cho phần còn thiếu' : 'Cần áp dụng Action 1 trước'}
-              >
-                <Sparkles size={11} />
-                Bổ sung ca gãy
-              </button>
-              <div className="h-4 w-px bg-gray-300 hidden sm:block" />
               <button
                 type="button"
                 onClick={() => {
-                  setPendingModeChange(null);
-                  setIsDiscardModalOpen(true);
+                  if (!createForm.shiftId || !createForm.date || !createForm.driverId) {
+                    showToast('Vui lòng điền đầy đủ các trường bắt buộc');
+                    return;
+                  }
+                  if (isStrictPast(createForm.date)) {
+                    showToast('⚠️ Không thể tạo ca làm cho ngày đã qua trong quá khứ');
+                    return;
+                  }
+                  const drv = stationDrivers.find((d) => d.id === createForm.driverId);
+                  const s = (driverShiftDefs as any[]).find((x) => x.id === createForm.shiftId) || {
+                    name: 'Ca phân công',
+                    timeStart: '07:00',
+                    timeEnd: '15:00',
+                  };
+
+                  const newAsg: ShiftAssignmentItem = {
+                    id: `asg-${createForm.driverId}-${createForm.date}-${createForm.shiftId}-${Date.now()}`,
+                    driverId: createForm.driverId,
+                    driverName: drv?.name || 'Nhân viên',
+                    driverPhone: drv?.phone,
+                    driverRole: 'Lái xe cứu hộ',
+                    shiftConfigId: createForm.shiftId,
+                    shiftName: s.name,
+                    date: createForm.date,
+                    startTime: s.timeStart || '07:00',
+                    endTime: s.timeEnd || '15:00',
+                    status: isSameDay(new Date(createForm.date), new Date()) ? 'IN_PROGRESS' : 'PLANNED',
+                    staffRole: 'Lái xe cứu hộ',
+                    vehiclePlate: '29A-888.99',
+                    vehicleType: 'Cứu hộ sàn trượt',
+                    note: createForm.note,
+                  };
+                  setAssignments((prev) => [...prev, newAsg]);
+                  setCreateModalOpen(false);
+                  showToast('Đã tạo ca làm mới thành công');
                 }}
-                disabled={!hasUnsavedChanges}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black border transition-all ${
-                  hasUnsavedChanges
-                    ? 'border-gray-300 bg-white text-gray-600 hover:border-red-300 hover:text-red-600'
-                    : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                }`}
+                className="px-4 py-2 bg-[#01a651] hover:bg-[#008c44] text-white rounded-md text-xs font-semibold shadow-xs transition"
               >
-                <RotateCcw size={11} />
-                Hủy thay đổi
+                Tạo ca làm
               </button>
-              <button
-                type="button"
-                onClick={handleSaveClick}
-                disabled={!hasUnsavedChanges}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black transition-all ${
-                  hasUnsavedChanges
-                    ? 'bg-vetc-green text-white hover:bg-green-700 shadow-sm'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                <Save size={11} />
-                Lưu lịch ca
-                {hasUnsavedChanges && (
-                  <span className="ml-0.5 px-1 py-px rounded-full bg-white/20 text-[9px]">
-                    {saveImpact.changedCells}
-                  </span>
-                )}
-              </button>
-            </>
-          ) : (
-            <span className="text-[10px] text-slate-500 font-medium">
-              Chế độ xem — bấm ô ca hoặc công cụ chỉnh sửa khi chuyển sang <strong>Cập nhật</strong>
-            </span>
-          )}
-
-          <div className="h-4 w-px bg-gray-300 hidden sm:block ml-auto" />
-
-          {/* Compact inline stats */}
-          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${WARNING_META.UNDERSTAFFED.chip}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${WARNING_META.UNDERSTAFFED.dot}`} />
-              Thiếu {sessionSummaryChips.understaffed}
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${WARNING_META.OVERSTAFFED.chip}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${WARNING_META.OVERSTAFFED.dot}`} />
-              Thừa {sessionSummaryChips.overstaffed}
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${WARNING_META.ALL_NEW.chip}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${WARNING_META.ALL_NEW.dot}`} />
-              Đủ {sessionSummaryChips.ok}
-            </span>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Legend */}
-        <div
-          className={`px-3 py-1.5 border-b flex flex-wrap items-center gap-3 text-[9px] ${
-            isEditMode ? 'text-amber-800 bg-amber-50/40' : 'text-gray-500'
-          }`}
-        >
-          {isEditMode && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 font-bold text-amber-800">
-              <Pencil size={9} />
-              Đang chỉnh sửa — thay đổi chỉ có hiệu lực sau khi bấm <strong className="mx-0.5">Lưu lịch ca</strong>
-            </span>
-          )}
-          <span className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-sm ${WARNING_META.UNDERSTAFFED.summary}`} /> Thiếu người
-          </span>
-          <span className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-sm ${WARNING_META.OVERSTAFFED.summary}`} /> Thừa người
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-indigo-200 border border-indigo-300" /> Ca đêm
-          </span>
-          {hasOvertimeShift && (
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-orange-200 border border-orange-300" /> Ca OT
-            </span>
-          )}
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-slate-50 border border-dashed border-slate-300" /> Chưa cấu hình (tương lai)
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-slate-200 border border-slate-400" /> Ngày đã qua
-          </span>
-          <span className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-full ${ACTUAL_WORK_META.WORKED.dot}`} /> Có đơn (thực tế)
-          </span>
-          <span className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-full ${ACTUAL_WORK_META.NO_ORDERS.dot}`} /> Xếp ca · không có đơn
-          </span>
-          <span className="text-gray-400">| Tổng buổi = ca gãy x 0.5 + ca nguyên x 1</span>
-        </div>
-
-        <div className="overflow-x-auto custom-scrollbar max-h-[calc(100vh-220px)]">
-          <table className="text-xs min-w-max border-collapse">
-            <thead className="sticky top-0 z-30">
-              <tr className="bg-gray-100 text-[10px] font-black text-gray-500 uppercase">
-                <th className="sticky left-0 z-40 bg-gray-100 border-b border-r px-3 py-2 min-w-[160px] text-left">
-                  Nhân viên
-                </th>
-                {dayNumbers.map((day) => {
-                  const pastHeader = isPastDay(day);
-                  return (
-                  <th
-                    key={day}
-                    className={`border-b border-r px-0.5 py-1 min-w-[52px] text-center ${
-                      pastHeader ? 'bg-slate-200 text-slate-600' : ''
-                    }`}
-                  >
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span>{day}</span>
-                      <span className={`text-[8px] ${pastHeader ? 'text-slate-500' : 'text-gray-400'}`}>
-                        {weekdayLabels.get(day)}
-                      </span>
-                    </div>
-                  </th>
-                  );
-                })}
-              </tr>
-            </thead>
-
-            <tbody>
-              {/* Employee rows */}
-              {employees.map((emp) => (
-                <tr key={emp.id} className="border-b hover:bg-gray-50/40">
-                  <td className="sticky left-0 z-20 bg-white border-r px-3 py-1.5">
-                    <div className="font-bold text-gray-800 text-[11px] leading-tight">{emp.name}</div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <span className="font-mono text-[9px] text-gray-400">{emp.code}</span>
-                      {emp.isNewEmployee && (
-                        <span className="px-1 rounded bg-purple-50 text-purple-600 text-[7px] font-black border border-purple-100">
-                          MỚI
-                        </span>
-                      )}
-                      <span className="px-1 rounded bg-slate-100 text-slate-600 text-[7px] font-bold border border-slate-200">
-                        {formatShiftUnits(countEmployeeUnits(emp))}/{formatShiftUnits(minShiftUnits)} ca
-                      </span>
-                    </div>
-                  </td>
-                      {dayNumbers.map((day) => {
-                        const shiftKey = emp.assignments[day];
-                        const warn: ShiftDayWarning | null = null;
-                    const isEditing =
-                      isEditMode &&
-                      editingCell?.employeeId === emp.id &&
-                      editingCell?.day === day;
-                    const isUnconfiguredFuture = !shiftKey && isFutureDay(day);
-                    const actualWork = isPastDay(day) ? getActualWorkFact(emp.id, day) : null;
-                    const cellTitle = buildCellTitle(shiftKey, day, isUnconfiguredFuture, actualWork);
-                    const cellLabel = shiftKey ?? (isUnconfiguredFuture ? '—' : '·');
-                    const cellClass = getShiftCellClass(shiftKey, warn, isEditMode, day, actualWork);
-
-                    return (
-                      <td
-                        key={day}
-                        className={`border-r px-0.5 py-0.5 p-0 ${isPastDay(day) ? 'bg-slate-50/50' : ''}`}
-                      >
-                        {isEditing ? null : isEditMode ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              tryOpenCellEditor(
-                                emp.id,
-                                day,
-                                Math.max(8, rect.top - 140),
-                                rect.left
-                              );
-                            }}
-                            className={`relative w-full h-9 rounded font-mono font-bold text-[10px] transition-colors cursor-pointer ${cellClass}`}
-                            title={cellTitle}
-                          >
-                            {cellLabel}
-                            {renderActualWorkBadge(actualWork, shiftKey)}
-                          </button>
-                        ) : (
-                          <div
-                            className={`relative w-full h-9 rounded font-mono font-bold text-[10px] cursor-default ${cellClass}`}
-                            title={cellTitle}
-                          >
-                            {cellLabel}
-                            {renderActualWorkBadge(actualWork, shiftKey)}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-
-              {/* Tổng hợp theo buổi */}
-              <tr>
-                <td
-                  colSpan={dayNumbers.length + 1}
-                  className="sticky left-0 bg-slate-100 border-y border-slate-200 px-3 py-1 text-[9px] font-black text-slate-600 uppercase tracking-wider"
-                >
-                  Tổng hợp theo buổi / ngày
-                  <span className="ml-2 font-normal normal-case text-slate-500">
-                    — cộng cả ca gãy và ca nguyên (0.5 / 1)
-                  </span>
-                </td>
-              </tr>
-
-              {[
-                {
-                  key: 'morning',
-                  label: 'Buổi sáng',
-                  requiredKey: 'requiredMorning',
-                  shortageKey: 'shortageMorning',
-                },
-                {
-                  key: 'afternoon',
-                  label: 'Buổi chiều',
-                  requiredKey: 'requiredAfternoon',
-                  shortageKey: 'shortageAfternoon',
-                },
-                {
-                  key: 'night',
-                  label: 'Buổi đêm',
-                  requiredKey: 'requiredNight',
-                  shortageKey: 'shortageNight',
-                },
-              ].map((session) => (
-                <tr key={session.key} className="border-b bg-slate-50/40">
-                  <td className="sticky left-0 z-20 bg-slate-50 border-r px-3 py-1">
-                    <div className="font-black text-[10px] text-slate-800">{session.label}</div>
-                    <div className="text-[8px] text-slate-500">Ca gãy = 0.5, ca nguyên = 1</div>
-                  </td>
-                  {dayNumbers.map((day) => {
-                    const stat = getSessionSummaryStat(day);
-                    const value = stat?.[session.key as keyof typeof stat] ?? 0;
-                    const required = stat?.[session.requiredKey as keyof typeof stat] ?? 0;
-                    const shortage = stat?.[session.shortageKey as keyof typeof stat] ?? 0;
-                    const hasShortage = Number(shortage) > 0;
-                    const over = Number(value) - Number(required);
-                    const hasOver = !hasShortage && over > 0;
-                    return (
-                      <td key={day} className="border-r px-0.5 py-0.5">
-                        <div
-                          className={`h-9 rounded border flex flex-col items-center justify-center font-mono text-[10px] font-black ${
-                            hasShortage
-                              ? 'bg-red-50 border-red-200 text-red-800'
-                              : hasOver
-                                ? 'bg-orange-50 border-orange-200 text-orange-800'
-                              : 'bg-white border-slate-200 text-slate-700'
-                          }`}
-                          title={
-                            hasShortage
-                              ? `${session.label}: thiếu ${formatShiftUnits(Number(shortage))} (${formatShiftUnits(Number(value))}/${formatShiftUnits(Number(required))})`
-                              : hasOver
-                                ? `${session.label}: thừa ${formatShiftUnits(over)} (${formatShiftUnits(Number(value))}/${formatShiftUnits(Number(required))})`
-                              : `${session.label}: ${formatShiftUnits(Number(value))}/${formatShiftUnits(Number(required))}`
-                          }
-                        >
-                          <span>{formatShiftUnits(Number(value))}</span>
-                          <span className="text-[8px] mt-0.5">
-                            {hasShortage
-                              ? `-${formatShiftUnits(Number(shortage))}`
-                              : hasOver
-                                ? `+${formatShiftUnits(over)}`
-                              : `/${formatShiftUnits(Number(required))}`}
-                          </span>
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-
-              <tr className="border-b bg-amber-50/60">
-                <td className="sticky left-0 z-20 bg-amber-50 border-r px-3 py-1">
-                  <div className="font-black text-[10px] text-amber-800">Tổng quy đổi</div>
-                  <div className="text-[8px] text-amber-700">C1+C2+C3 + (ca gãy x 0.5)</div>
-                  <div className="text-[8px] text-amber-700/80">Mẫu hiển thị: thực tế / định mức ngày</div>
-                </td>
-                {dayNumbers.map((day) => renderDailySummaryCell(day))}
-              </tr>
-
-              <tr className="border-b bg-slate-50">
-                <td className="sticky left-0 z-20 bg-slate-50 border-r px-3 py-1">
-                  <div className="font-black text-[10px] text-slate-700">Số NV OFF</div>
-                  <div className="text-[8px] text-slate-500">Không phân ca trong ngày</div>
-                </td>
-                {dayNumbers.map((day) => {
-                  const stat = getDailySummaryStat(day);
-                  return (
-                    <td key={day} className="border-r px-0.5 py-0.5">
-                      <div className="h-9 rounded border border-slate-200 bg-white flex items-center justify-center font-mono text-[10px] font-bold text-slate-600">
-                        {stat?.offCount ?? 0}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {isEditMode && editingCell && (() => {
-        const targetEmp = employees.find((e) => e.id === editingCell.employeeId);
-        const current = targetEmp?.assignments[editingCell.day] ?? null;
-        const selectedKeys = parseAssignmentKeys(current);
-        return (
-          <div
-            className="fixed z-[95] w-44 bg-white border-2 border-vetc-green rounded p-1 shadow-xl"
-            style={{ top: editingCell.anchorTop, left: editingCell.anchorLeft }}
-          >
-            <div className="max-h-24 overflow-auto space-y-0.5">
-              {shiftKeys.map((k) => {
-                const checked = selectedKeys.includes(k);
-                return (
-                  <label key={k} className="flex items-center gap-1 text-[10px] font-mono cursor-pointer px-1 py-0.5 rounded hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        const next = checked
-                          ? selectedKeys.filter((x) => x !== k)
-                          : [...selectedKeys, k];
-                        updateAssignment(
-                          editingCell.employeeId,
-                          editingCell.day,
-                          next.length ? next.join('+') : null,
-                          false
-                        );
-                      }}
-                    />
-                    <span>{k}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="mt-1 flex items-center justify-between">
+      {/* ─── MODAL THÊM NV VÀO CA THIẾU (TỪ TAB OVERVIEW) ────────────────────── */}
+      {addStaffModalOpen && selectedUnderstaffedShift && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Thêm nhân viên vào ca</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Bổ sung nhân sự cho {selectedUnderstaffedShift.shiftName} ({formatDisplayDate(selectedUnderstaffedShift.date)})
+                </p>
+              </div>
               <button
                 type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => updateAssignment(editingCell.employeeId, editingCell.day, null, false)}
-                className="text-[9px] text-gray-500 hover:text-red-600"
+                onClick={() => setAddStaffModalOpen(false)}
+                className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition"
               >
-                Xóa ca
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs">
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="font-semibold text-slate-800">{selectedUnderstaffedShift.shiftName}</div>
+                <div className="text-slate-500 text-[11px] mt-0.5">
+                  Ngày {formatDisplayDate(selectedUnderstaffedShift.date)} • Khung giờ {selectedUnderstaffedShift.startTime} - {selectedUnderstaffedShift.endTime}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Chọn nhân viên bổ sung <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={addStaffDriverId}
+                  onChange={(e) => setAddStaffDriverId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                >
+                  <option value="">-- Chọn nhân viên sẵn sàng --</option>
+                  {stationDrivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.phone})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+              <button
+                type="button"
+                onClick={() => setAddStaffModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
+              >
+                Hủy
               </button>
               <button
                 type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setEditingCell(null)}
-                className="text-[9px] text-vetc-green hover:underline"
+                onClick={() => {
+                  if (!addStaffDriverId) {
+                    showToast('Vui lòng chọn nhân viên');
+                    return;
+                  }
+                  const drv = stationDrivers.find((d) => d.id === addStaffDriverId);
+                  const newAsg: ShiftAssignmentItem = {
+                    id: `asg-${addStaffDriverId}-${selectedUnderstaffedShift.date}-${selectedUnderstaffedShift.shiftDefId}-${Date.now()}`,
+                    driverId: addStaffDriverId,
+                    driverName: drv?.name || 'Nhân viên',
+                    driverPhone: drv?.phone,
+                    driverRole: 'Lái xe cứu hộ',
+                    shiftConfigId: selectedUnderstaffedShift.shiftDefId,
+                    shiftName: selectedUnderstaffedShift.shiftName,
+                    date: selectedUnderstaffedShift.date,
+                    startTime: selectedUnderstaffedShift.startTime,
+                    endTime: selectedUnderstaffedShift.endTime,
+                    status: isSameDay(new Date(selectedUnderstaffedShift.date), new Date()) ? 'IN_PROGRESS' : 'PLANNED',
+                    staffRole: 'Lái xe cứu hộ',
+                    vehiclePlate: '29A-888.99',
+                    vehicleType: 'Cứu hộ sàn trượt',
+                  };
+                  setAssignments((prev) => [...prev, newAsg]);
+                  setAddStaffModalOpen(false);
+                  showToast(`Đã thêm ${drv?.name} vào ca làm`);
+                }}
+                className="px-4 py-2 bg-[#01a651] hover:bg-[#008c44] text-white rounded-md text-xs font-semibold shadow-xs transition"
+              >
+                Thêm nhân viên
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DLG-04: CHI TIẾT CA LÀM ────────────────────────────────────────── */}
+      {detailModalItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Chi tiết phân công ca làm</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Mã ca: {detailModalItem.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModalItem(null)}
+                className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {/* Thông tin nhân viên & trạng thái */}
+              <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold text-sm flex items-center justify-center shrink-0">
+                    {detailModalItem.driverName.split(' ').pop()?.charAt(0) || 'T'}
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-900">{detailModalItem.driverName}</h4>
+                    <p className="text-slate-500 text-[11px]">{detailModalItem.driverPhone || '0988 123 456'}</p>
+                  </div>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                    shiftStatusBadgeStyles[detailModalItem.status]
+                  }`}
+                >
+                  {shiftStatusLabels[detailModalItem.status]}
+                </span>
+              </div>
+
+              {/* Thông tin ca làm */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+                  <span className="text-[11px] text-slate-500 block mb-0.5">Ca làm việc:</span>
+                  <strong className="text-slate-800">{detailModalItem.shiftName}</strong>
+                </div>
+                <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+                  <span className="text-[11px] text-slate-500 block mb-0.5">Ngày làm việc:</span>
+                  <strong className="text-slate-800">{formatDisplayDate(detailModalItem.date)}</strong>
+                </div>
+                <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+                  <span className="text-[11px] text-slate-500 block mb-0.5">Khung giờ:</span>
+                  <strong className="text-slate-800">
+                    {detailModalItem.startTime} – {detailModalItem.endTime}
+                  </strong>
+                </div>
+                <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+                  <span className="text-[11px] text-slate-500 block mb-0.5">Phương tiện cứu hộ:</span>
+                  <strong className="text-slate-800">{detailModalItem.vehiclePlate || '29A-888.99'}</strong>
+                </div>
+              </div>
+
+              {/* Dữ liệu kiểm tra xe & checkin */}
+              <div className="p-3.5 bg-emerald-50/40 border border-emerald-200 rounded-xl space-y-2.5">
+                <div className="font-bold text-slate-800 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-[#005d2d]">
+                    <ShieldCheck className="w-4 h-4 text-[#01a651]" />
+                    <span>Dữ liệu bàn giao ca & check-in (FDD FL-M2-03)</span>
+                  </div>
+                  {detailModalItem.checkinAt ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                      ✓ Đã Check-in ({detailModalItem.checkinAt})
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                      Chưa Check-in
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-[11px] pt-1">
+                  <div>
+                    <span className="text-slate-500 block">Km nhận ca:</span>
+                    <strong className="text-slate-800">
+                      {detailModalItem.startKm ? `${detailModalItem.startKm.toLocaleString()} km` : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Km kết thúc:</span>
+                    <strong className="text-slate-800">
+                      {detailModalItem.endKm ? `${detailModalItem.endKm.toLocaleString()} km` : (detailModalItem.checkinAt ? 'Đang chạy...' : '—')}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Quãng đường ca:</span>
+                    <strong className="text-blue-700 font-bold">
+                      {detailModalItem.startKm && detailModalItem.endKm
+                        ? `+${(detailModalItem.endKm - detailModalItem.startKm).toLocaleString()} km`
+                        : '—'}
+                    </strong>
+                  </div>
+                </div>
+
+                {detailModalItem.toolItems && detailModalItem.toolItems.some(t => t.condition !== 'GOOD') && (
+                  <div className="pt-2 border-t border-emerald-200/60">
+                    <span className="text-[10px] text-amber-800 font-bold block mb-1">
+                      ⚠️ Công cụ có vấn đề ghi nhận lúc bàn giao:
+                    </span>
+                    <div className="space-y-1">
+                      {detailModalItem.toolItems.filter(t => t.condition !== 'GOOD').map(t => (
+                        <div key={t.name} className="flex items-center justify-between text-[10px] px-2 py-1 bg-amber-50 rounded border border-amber-200">
+                          <span className="font-semibold">{t.name} ({t.actualQty}/{t.standardQty} {t.unit})</span>
+                          <span className="text-amber-800 font-bold">{t.condition === 'BROKEN' ? 'Hỏng' : 'Thiếu'} {t.note ? `· ${t.note}` : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {detailModalItem.checkinNote && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <span className="text-[11px] text-slate-500 block mb-0.5">Ghi chú nhận ca:</span>
+                  <p className="text-slate-700">{detailModalItem.checkinNote}</p>
+                </div>
+              )}
+
+              {detailModalItem.checkoutNote && (
+                <div className="p-3 bg-blue-50/50 border border-blue-200 rounded-lg">
+                  <span className="text-[11px] text-blue-700 block mb-0.5">Ghi chú bàn giao xe / trả ca:</span>
+                  <p className="text-slate-700">{detailModalItem.checkoutNote}</p>
+                </div>
+              )}
+
+              {detailModalItem.note && !detailModalItem.checkinNote && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <span className="text-[11px] text-slate-500 block mb-0.5">Ghi chú:</span>
+                  <p className="text-slate-700">{detailModalItem.note}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                {!detailModalItem.checkinAt ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = detailModalItem;
+                      setDetailModalItem(null);
+                      handleOpenCheckin(item);
+                    }}
+                    className="px-3.5 py-2 bg-[#01a651] hover:bg-[#008f45] text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Check-in nhận ca ngay</span>
+                  </button>
+                ) : !detailModalItem.checkoutAt ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = detailModalItem;
+                      setDetailModalItem(null);
+                      handleOpenCheckout(item);
+                    }}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Check-out kết thúc ca</span>
+                  </button>
+                ) : (
+                  <span className="text-emerald-700 text-xs font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Ca làm đã hoàn tất bàn giao</span>
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModalItem(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-md text-xs font-semibold transition"
               >
                 Đóng
               </button>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
-      {/* Excel preview modal */}
-      {isPreviewOpen && previewEmployees && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden font-['Inter']">
-            <div className="bg-vetc-green text-white px-5 py-3 flex items-center justify-between shrink-0">
+      {/* ─── MODAL SỬA CA LÀM ─────────────────────────────────────────────────── */}
+      {editModalItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="font-bold">Preview lịch ca sau upload</h3>
-                <p className="text-xs text-white/80 mt-0.5">{previewFileName}</p>
+                <h3 className="font-bold text-base text-slate-900">Cập nhật ca làm</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Chỉnh sửa thông tin phân công</p>
               </div>
-              <button type="button" onClick={() => setIsPreviewOpen(false)} className="p-1 hover:bg-white/20 rounded-full">
-                <X size={18} />
+              <button
+                type="button"
+                onClick={() => setEditModalItem(null)}
+                className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-4 overflow-auto flex-1 custom-scrollbar">
-              <div className="mb-3 flex flex-wrap gap-1.5 text-[10px] font-bold">
-                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  {role} · {monthLabel}
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                  {previewEmployees.length} NV
-                </span>
-                {(() => {
-                  const pw = computeWarnings(role, yearMonth, previewEmployees);
-                  const ps = {
-                    u: pw.filter((w) => w.type === 'UNDERSTAFFED').length,
-                    o: pw.filter((w) => w.type === 'OVERSTAFFED').length,
+            <div className="p-5 space-y-3.5 text-xs">
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Nhân viên</label>
+                <select
+                  value={editForm.driverId}
+                  onChange={(e) => setEditForm({ ...editForm, driverId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                >
+                  {stationDrivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.phone})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Ca làm việc</label>
+                <select
+                  value={editForm.shiftConfigId}
+                  onChange={(e) => setEditForm({ ...editForm, shiftConfigId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                >
+                  {(driverShiftDefs.length > 0 ? driverShiftDefs : [
+                    { id: 'shift-c1', name: 'Ca 1 (Sáng)' },
+                    { id: 'shift-c2', name: 'Ca 2 (Chiều)' },
+                    { id: 'shift-cd', name: 'Ca đêm' },
+                  ]).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Ngày làm việc</label>
+                <input
+                  type="date"
+                  value={editForm.date}
+                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Ghi chú</label>
+                <textarea
+                  rows={2}
+                  value={editForm.note}
+                  onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-[#01a651]"
+                />
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+              <button
+                type="button"
+                onClick={() => setEditModalItem(null)}
+                className="px-4 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const drv = stationDrivers.find((d) => d.id === editForm.driverId);
+                  const s = (driverShiftDefs as any[]).find((x) => x.id === editForm.shiftConfigId) || {
+                    name: 'Ca phân công',
                   };
-                  return (
-                    <>
-                      <span className={`px-2 py-0.5 rounded-full border ${WARNING_META.UNDERSTAFFED.chip}`}>
-                        Thiếu {ps.u}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full border ${WARNING_META.OVERSTAFFED.chip}`}>
-                        Thừa {ps.o}
-                      </span>
-                    </>
+
+                  setAssignments((prev) =>
+                    prev.map((a) => {
+                      if (a.id === editModalItem.id) {
+                        return {
+                          ...a,
+                          driverId: editForm.driverId,
+                          driverName: drv?.name || a.driverName,
+                          shiftConfigId: editForm.shiftConfigId,
+                          shiftName: s.name,
+                          date: editForm.date,
+                          note: editForm.note,
+                        };
+                      }
+                      return a;
+                    })
                   );
-                })()}
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 mb-3 text-xs text-slate-700">
-                <p>
-                  Ảnh hưởng dự kiến: <strong>{previewImpact.changedEmployees}</strong> NV, <strong>{previewImpact.changedCells}</strong> ô ca thay đổi.
-                </p>
-                {previewImpact.changedPastOrToday > 0 && (
-                  <p className="mt-1 text-red-600 font-semibold">
-                    Cảnh báo: có {previewImpact.changedPastOrToday} thay đổi rơi vào ngày đã/đang diễn ra trong tháng hiện tại.
-                  </p>
-                )}
-              </div>
-
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 px-3 py-2 mb-3">
-                <p className="text-xs font-bold text-emerald-700 mb-2">Tổng hợp theo buổi / ngày (ca gãy = 0.5, ca nguyên = 1)</p>
-                <div className="overflow-x-auto border rounded bg-white">
-                  <table className="text-[10px] min-w-max w-full">
-                    <thead>
-                      <tr className="bg-emerald-50 text-emerald-800">
-                        <th className="border px-2 py-1 text-left sticky left-0 bg-emerald-50">Buổi</th>
-                        {dayNumbers.map((d) => (
-                          <th key={d} className="border px-1.5 py-1 text-center font-mono">{d}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[
-                        { key: 'morning', label: 'Buổi sáng' },
-                        { key: 'afternoon', label: 'Buổi chiều' },
-                        { key: 'night', label: 'Buổi đêm' },
-                        { key: 'total', label: 'TỔNG' },
-                      ].map((row) => (
-                        <tr key={row.key}>
-                          <td className="border px-2 py-1 font-mono font-bold sticky left-0 bg-white">
-                            {row.label}
-                          </td>
-                          {dayNumbers.map((day) => {
-                            const dayData = previewSessionSummary.find((x) => x.day === day);
-                            const value = dayData ? dayData[row.key as 'morning' | 'afternoon' | 'night' | 'total'] : 0;
-                            const required = requiredBySession[row.key as 'morning' | 'afternoon' | 'night' | 'total'];
-                            const isUnder = value < required;
-                            const isOver = value > required;
-                            return (
-                              <td
-                                key={`${row.key}-${day}`}
-                                className={`border px-1.5 py-1 text-center font-mono ${
-                                  isUnder
-                                    ? 'bg-red-50 text-red-700'
-                                    : isOver
-                                      ? 'bg-orange-50 text-orange-700'
-                                      : ''
-                                }`}
-                                title={
-                                  isUnder
-                                    ? `Thiếu ${formatShiftUnits(required - value)} (${formatShiftUnits(value)}/${formatShiftUnits(required)})`
-                                    : isOver
-                                      ? `Thừa ${formatShiftUnits(value - required)} (${formatShiftUnits(value)}/${formatShiftUnits(required)})`
-                                      : `Đủ (${formatShiftUnits(value)}/${formatShiftUnits(required)})`
-                                }
-                              >
-                                {formatShiftUnits(value)}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="text-xs min-w-max w-full">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border px-3 py-2 text-left">Họ tên</th>
-                      {dayNumbers.map((d) => (
-                        <th key={d} className="border px-2 py-2 text-center font-mono">{d}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewEmployees.map((emp) => (
-                      <tr key={emp.id}>
-                        <td className="border px-3 py-2 font-medium">{emp.name}</td>
-                        {dayNumbers.map((d) => (
-                          <td key={d} className="border px-2 py-2 text-center font-mono">
-                            {emp.assignments[d] ?? '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="px-5 py-3 border-t bg-gray-50 flex gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsPreviewOpen(false)}
-                className="flex-1 py-2 rounded-xl border font-bold text-gray-500 hover:bg-white text-sm"
+                  setEditModalItem(null);
+                  showToast('Đã cập nhật ca làm thành công');
+                }}
+                className="px-4 py-2 bg-[#01a651] hover:bg-[#008c44] text-white rounded-md text-xs font-semibold shadow-xs transition"
               >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmImport}
-                className="flex-1 py-2 rounded-xl bg-vetc-green text-white font-bold inline-flex items-center justify-center gap-2 text-sm"
-              >
-                <Check size={16} />
-                Xác nhận import
+                Lưu thay đổi
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {isUploadProcessing && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 font-['Inter']">
-            <div className="flex items-center gap-3">
-              <Loader2 size={20} className="animate-spin text-vetc-green" />
+      {/* ─── MODAL CHI TIẾT NGÀY (ShiftCalendarDayModal) ────────────────────────── */}
+      {dayModalDate && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div>
-                <p className="text-sm font-bold text-gray-800">Đang xử lý file upload...</p>
-                <p className="text-xs text-gray-500 mt-0.5 break-all">{uploadProcessingFileName}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isMidMonthPastPromptOpen && (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-            <div className="bg-amber-600 text-white px-5 py-3 flex items-center gap-2">
-              <AlertTriangle size={18} />
-              <h3 className="font-bold text-sm">Xếp ca giữa tháng — chọn phạm vi</h3>
-            </div>
-            <div className="p-5 space-y-3 text-sm text-left">
-              <p className="text-gray-700">
-                Hôm nay là ngày <strong>{now.getDate()}/{now.getMonth() + 1}</strong>. Chọn cách xử lý ngày
-                đã qua / hôm nay khi sắp xếp ca mặc định:
-              </p>
-              <ul className="text-xs text-gray-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1.5 list-disc list-inside">
-                <li>
-                  <strong>Xếp lại cả tháng:</strong> xóa & xếp lại từ ngày 1 → cuối tháng (gồm quá khứ).
-                </li>
-                <li>
-                  <strong>Giữ quá khứ:</strong> giữ ca ngày 1→hôm nay; tính công còn lại (trần{' '}
-                  {formatShiftUnits(minShiftUnits)} công/NV); xếp FULL từ ngày mai.
-                </li>
-                <li>
-                  <strong>Hủy:</strong> đóng, không chạy sắp xếp.
-                </li>
-              </ul>
-            </div>
-            <div className="px-5 py-3 border-t bg-gray-50 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={handleMidMonthRescheduleAll}
-                className="w-full py-2.5 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700"
-              >
-                Xếp lại cả tháng (gồm quá khứ)
-              </button>
-              <button
-                type="button"
-                onClick={handleMidMonthKeepPastAndFillFuture}
-                className="w-full py-2.5 rounded-xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-700"
-              >
-                Giữ quá khứ — xếp phần còn lại
-              </button>
-              <button
-                type="button"
-                onClick={handleDismissMidMonthPastPrompt}
-                className="w-full py-2 rounded-xl border font-bold text-gray-500 hover:bg-white text-sm"
-              >
-                Hủy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isAutoModalOpen && autoResult && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
-            <div className="bg-indigo-600 text-white px-5 py-3 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Sparkles size={18} />
-                <h3 className="font-bold">
-                  {pendingAutoAction === 1
-                    ? 'Kết quả Action 1 (ca mặc định)'
-                    : pendingAutoAction === 2
-                      ? 'Kết quả Action 2 (bù ca gãy)'
-                      : 'Kết quả sắp xếp ca tự động'} — {role} {monthLabel}
+                <h3 className="font-bold text-base text-slate-900">
+                  Lịch trực ngày {formatDisplayDate(formatDateStr(dayModalDate))}
                 </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Danh sách phân công ca làm & điều phối nhân sự theo từng ca
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setIsAutoModalOpen(false);
-                  setAutoResult(null);
-                  setPendingAutoAction(null);
-                }}
-                className="p-1 hover:bg-white/20 rounded-full"
+                onClick={() => setDayModalDate(null)}
+                className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition"
               >
-                <X size={18} />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto custom-scrollbar space-y-4 text-sm">
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                <p className="text-sm font-bold text-amber-800">
-                  {pendingAutoAction === 1
-                    ? 'Xác nhận chạy tự động sắp xếp ca mặc định (C1/C2/C3).'
-                    : 'Xác nhận bổ sung ca gãy để bù phần thiếu còn lại.'}
-                </p>
-                <p className="text-xs text-amber-700 mt-1">
-                  Sau khi xác nhận, thay đổi sẽ được áp dụng tạm thời. Bạn cần bấm <strong>Lưu lịch ca</strong> để ghi nhận.
-                </p>
-              </div>
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              {(driverShiftDefs.length > 0 ? driverShiftDefs : [
+                { id: 'shift-c1', name: 'Ca 1 (Sáng)', timeStart: '07:00', timeEnd: '15:00' },
+                { id: 'shift-c2', name: 'Ca 2 (Chiều)', timeStart: '13:30', timeEnd: '21:30' },
+                { id: 'shift-cd', name: 'Ca đêm', timeStart: '21:30', timeEnd: '07:00' },
+              ]).map((shift) => {
+                const dateStr = formatDateStr(dayModalDate);
+                const assigned = assignments.filter((a) => a.date === dateStr && a.shiftConfigId === shift.id);
+                const locked = isStrictPast(dateStr);
 
-              {autoResult.preserveThroughDay != null && (
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-900 space-y-1">
-                  <p className="font-bold text-indigo-950">Chế độ giữa tháng</p>
-                  <p>
-                    Giữ lịch ngày <strong>1 → {autoResult.preserveThroughDay}</strong>; chỉ xếp từ ngày{' '}
-                    <strong>{autoResult.preserveThroughDay + 1}</strong>.
-                  </p>
-                </div>
-              )}
+                return (
+                  <div key={shift.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-800">{shift.name}</h4>
+                        <span className="text-xs text-slate-500">
+                          {shift.timeStart} – {shift.timeEnd}
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-1 bg-emerald-50 text-[#005d2d] border border-emerald-200 rounded-full font-bold text-xs">
+                        {assigned.length} nhân viên
+                      </span>
+                    </div>
 
-              {autoResult.midMonthQuota && autoResult.midMonthQuota.length > 0 && (
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">
-                    Công đã xếp (1→{autoResult.preserveThroughDay}) / còn lại so với định mức{' '}
-                    {formatShiftUnits(minShiftUnits)}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {assigned.map((staff) => (
+                        <div
+                          key={staff.id}
+                          className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-2xs hover:border-slate-300 transition"
+                        >
+                          <div
+                            className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
+                            onClick={() => {
+                              setDayModalDate(null);
+                              setDetailModalItem(staff);
+                            }}
+                          >
+                            <div className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                              {staff.driverName.split(' ').pop()?.charAt(0) || 'T'}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-xs text-slate-800 truncate flex items-center gap-1.5">
+                                <span>{staff.driverName}</span>
+                                {staff.checkinAt && (
+                                  <span className="text-[10px] font-normal text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                                    ✓ In {staff.checkinAt}
+                                  </span>
+                                )}
+                                {staff.checkoutAt && (
+                                  <span className="text-[10px] font-normal text-blue-600 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">
+                                    Out {staff.checkoutAt}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {staff.vehiclePlate || 'Chưa gán xe'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            {!staff.checkinAt ? (
+                              <button
+                                type="button"
+                                onClick={() => setCheckinModalItem(staff)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-medium flex items-center gap-1 shadow-2xs transition"
+                                title="Check-in nhận ca"
+                              >
+                                <LogIn className="w-3 h-3" />
+                                In
+                              </button>
+                            ) : !staff.checkoutAt ? (
+                              <button
+                                type="button"
+                                onClick={() => setCheckoutModalItem(staff)}
+                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-medium flex items-center gap-1 shadow-2xs transition"
+                                title="Check-out trả ca"
+                              >
+                                <LogOut className="w-3 h-3" />
+                                Out
+                              </button>
+                            ) : null}
+
+                            {!locked && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRemoveAssignment(staff.id, staff.driverName, shift.name, dateStr)
+                                }
+                                className="p-1 hover:bg-rose-50 text-rose-500 rounded transition"
+                                title="Xóa nhân viên khỏi ca"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {assigned.length === 0 && (
+                        <div className="col-span-2 text-center py-4 text-xs text-slate-400 border border-dashed border-slate-300 rounded-lg">
+                          Chưa có nhân viên nào được phân công trong ca này
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="max-h-40 overflow-y-auto custom-scrollbar">
-                    <table className="w-full text-[11px]">
-                      <thead className="bg-white sticky top-0">
-                        <tr className="text-left text-gray-500 border-b">
-                          <th className="px-3 py-1.5 font-bold">Nhân viên</th>
-                          <th className="px-3 py-1.5 font-bold text-right">Đã xếp</th>
-                          <th className="px-3 py-1.5 font-bold text-right">Còn lại</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {autoResult.midMonthQuota.map((q) => (
-                          <tr key={q.employeeId} className="border-b border-slate-100">
-                            <td className="px-3 py-1.5 text-gray-800">{q.name}</td>
-                            <td className="px-3 py-1.5 text-right font-mono">
-                              {formatShiftUnits(q.usedUnits)}
-                            </td>
-                            <td className="px-3 py-1.5 text-right font-mono font-bold text-vetc-green">
-                              {formatShiftUnits(q.remainingUnits)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700 space-y-1">
-                <p className="font-bold text-slate-800">Tổng quan cách xếp:</p>
-                <p>- Action 1: phân ca mặc định C1/C2/C3 theo định mức tháng từ BE.</p>
-                <p>- Action 2: bổ sung ca gãy để bù phần thiếu, ưu tiên cân bằng tải và tôn trọng mong muốn nghỉ.</p>
-                <p>- Giới hạn trong ngày: tối đa 2 ca mặc định hoặc 4 ca gãy cho mỗi nhân sự.</p>
-              </div>
+                );
+              })}
             </div>
 
-            <div className="px-5 py-3 border-t bg-gray-50 flex gap-2 shrink-0">
+            <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end bg-slate-50/50 shrink-0">
               <button
                 type="button"
-                onClick={() => {
-                  setIsAutoModalOpen(false);
-                  setAutoResult(null);
-                }}
-                className="flex-1 py-2 rounded-xl border font-bold text-gray-500 hover:bg-white text-sm"
+                onClick={() => setDayModalDate(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-md text-xs font-semibold transition"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL CONFIRM CHUNG ──────────────────────────────────────────────── */}
+      {confirmModal.open && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-sm w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5">
+              <h3 className="font-bold text-base text-slate-900 mb-2">{confirmModal.title}</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">{confirmModal.message}</p>
+            </div>
+            <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+              <button
+                type="button"
+                onClick={() => setConfirmModal({ ...confirmModal, open: false })}
+                className="px-3.5 py-1.5 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
               >
                 Hủy
               </button>
               <button
                 type="button"
-                onClick={handleConfirmAutoSchedule}
-                className="flex-1 py-2 rounded-xl bg-indigo-600 text-white font-bold inline-flex items-center justify-center gap-2 text-sm hover:bg-indigo-700"
-              >
-                <Check size={16} />
-                Áp dụng lịch ca
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pastEditPrompt && (() => {
-        const emp = employees.find((e) => e.id === pastEditPrompt.employeeId);
-        const isToday = isCurrentMonth && pastEditPrompt.day === now.getDate();
-        const isStrictPast = isCurrentMonth && pastEditPrompt.day < now.getDate();
-        return (
-          <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden font-['Inter']">
-              <div className="bg-red-600 text-white px-5 py-3 flex items-center gap-2">
-                <AlertTriangle size={18} />
-                <h3 className="font-bold text-sm">
-                  {isStrictPast ? 'Cảnh báo chỉnh sửa ca đã qua' : 'Cảnh báo chỉnh sửa ca hôm nay'}
-                </h3>
-              </div>
-              <div className="p-5 space-y-3 text-sm">
-                <p className="text-gray-700">
-                  Ngày <strong>{pastEditPrompt.day}</strong>
-                  {isToday ? ' (hôm nay)' : ''} — nhân viên{' '}
-                  <strong>{emp?.name ?? '—'}</strong>.
-                </p>
-                <p className="text-gray-600 text-xs">
-                  {isStrictPast
-                    ? 'Ca làm đã qua có thể ảnh hưởng tới chấm công và báo cáo. Bạn vẫn muốn chỉnh sửa?'
-                    : 'Ca hôm nay đang diễn ra. Bạn vẫn muốn chỉnh sửa?'}
-                </p>
-              </div>
-              <div className="px-5 py-3 border-t bg-gray-50 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPastEditPrompt(null)}
-                  className="flex-1 py-2 rounded-xl border font-bold text-gray-500 hover:bg-white text-sm"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingCell(pastEditPrompt);
-                    setPastEditPrompt(null);
-                  }}
-                  className="flex-1 py-2 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700"
-                >
-                  Vẫn chỉnh sửa
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {isSaveModalOpen && (
-        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden font-['Inter']">
-            <div className="bg-vetc-green text-white px-5 py-3 flex items-center gap-2">
-              <Save size={18} />
-              <h3 className="font-bold text-sm">Xác nhận lưu lịch ca</h3>
-            </div>
-            <div className="p-5 space-y-3 text-sm">
-              <p className="text-gray-700">
-                Bạn sắp lưu <strong>{saveImpact.changedCells}</strong> thay đổi trên{' '}
-                <strong>{saveImpact.changedEmployees}</strong> nhân viên.
-              </p>
-              {saveImpact.changedPastOrToday > 0 && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                  <p className="font-bold flex items-center gap-1">
-                    <AlertTriangle size={14} />
-                    Có {saveImpact.changedPastOrToday} thay đổi vào ngày đã/đang diễn ra
-                  </p>
-                  <p className="mt-1">
-                    Ca làm đã qua có thể ảnh hưởng tới chấm công. Bạn vẫn muốn lưu?
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-3 border-t bg-gray-50 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setIsSaveModalOpen(false)}
-                className="flex-1 py-2 rounded-xl border font-bold text-gray-500 hover:bg-white text-sm"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSave}
-                className="flex-1 py-2 rounded-xl bg-vetc-green text-white font-bold inline-flex items-center justify-center gap-2 text-sm hover:bg-green-700"
-              >
-                <Check size={16} />
-                Lưu lịch ca
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isDiscardModalOpen && (
-        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden font-['Inter']">
-            <div className="bg-slate-700 text-white px-5 py-3 flex items-center gap-2">
-              <RotateCcw size={18} />
-              <h3 className="font-bold text-sm">
-                {pendingModeChange === 'view' ? 'Thoát chế độ cập nhật' : 'Hủy thay đổi'}
-              </h3>
-            </div>
-            <div className="p-5 text-sm text-gray-700">
-              <p>
-                {pendingModeChange === 'view'
-                  ? 'Bạn có thay đổi chưa lưu. Thoát chế độ cập nhật sẽ bỏ toàn bộ chỉnh sửa tạm thời.'
-                  : `Bạn có ${saveImpact.changedCells} thay đổi chưa lưu. Hủy sẽ khôi phục lịch ca đã lưu gần nhất.`}
-              </p>
-            </div>
-            <div className="px-5 py-3 border-t bg-gray-50 flex gap-2">
-              <button
-                type="button"
                 onClick={() => {
-                  setIsDiscardModalOpen(false);
-                  setPendingModeChange(null);
+                  confirmModal.onConfirm();
+                  setConfirmModal({ ...confirmModal, open: false });
                 }}
-                className="flex-1 py-2 rounded-xl border font-bold text-gray-500 hover:bg-white text-sm"
+                className="px-4 py-1.5 bg-[#01a651] hover:bg-[#008c44] text-white rounded-md text-xs font-semibold shadow-xs transition"
               >
-                Quay lại
-              </button>
-              <button
-                type="button"
-                onClick={discardDraftChanges}
-                className="flex-1 py-2 rounded-xl bg-slate-700 text-white font-bold text-sm hover:bg-slate-800"
-              >
-                {pendingModeChange === 'view' ? 'Thoát & bỏ thay đổi' : 'Hủy thay đổi'}
+                Xác nhận
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ─── MODAL CHECK-IN NHẬN CA ────────────────────────────────────────── */}
+      {checkinModalItem && (
+        <CheckinModal
+          isOpen={Boolean(checkinModalItem)}
+          assignment={checkinModalItem}
+          onClose={() => setCheckinModalItem(null)}
+          onConfirm={handleSaveCheckin}
+        />
+      )}
+
+      {/* ─── MODAL CHECK-OUT KẾT THÚC CA ───────────────────────────────────── */}
+      {checkoutModalItem && (
+        <CheckoutModal
+          isOpen={Boolean(checkoutModalItem)}
+          assignment={checkoutModalItem}
+          onClose={() => setCheckoutModalItem(null)}
+          onConfirm={handleSaveCheckout}
+        />
+      )}
+
+      {/* ─── MODAL MÔ PHỎNG APP MOBILE TÀI XẾ ─────────────────────────────── */}
+      <AppShiftSimulatorModal
+        isOpen={appSimulatorOpen}
+        onClose={() => setAppSimulatorOpen(false)}
+        assignments={assignments}
+        drivers={stationDrivers || []}
+        onTriggerCheckin={(item) => setCheckinModalItem(item)}
+        onTriggerCheckout={(item) => setCheckoutModalItem(item)}
+      />
     </div>
   );
 };

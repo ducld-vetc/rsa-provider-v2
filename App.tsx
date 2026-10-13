@@ -27,7 +27,6 @@ import PricingPolicyCreate from './pages/PricingPolicyCreate';
 import BusinessManagement from './pages/BusinessManagement';
 import BusinessForm from './pages/BusinessForm';
 import PackagePurchaseManagement from './pages/PackagePurchaseManagement';
-import CustomerManagement from './pages/CustomerManagement';
 import PackageImportManagement from './pages/PackageImportManagement';
 import PaymentRequestManagement from './pages/PaymentRequestManagement';
 import PaymentRequestDetail from './pages/PaymentRequestDetail';
@@ -45,6 +44,8 @@ import PartnerStaff from './pages/PartnerStaff';
 import PartnerStaffDetail from './pages/PartnerStaffDetail';
 import PartnerReports from './pages/PartnerReports';
 import PartnerOrgConfig from './pages/PartnerOrgConfig';
+import PartnerResourceBoard from './pages/PartnerResourceBoard';
+import PartnerMaintenance from './pages/PartnerMaintenance';
 import StationCoverageReport from './pages/station-coverage/StationCoverageReport';
 import RescueProviderList from './pages/rescue-partner-admin/RescueProviderList';
 import { RescueProviderCreate, RescueProviderEdit, RescueProviderView } from './pages/rescue-partner-admin/RescueProviderForm';
@@ -54,7 +55,9 @@ import RescueServiceList from './pages/rescue-service/RescueServiceList';
 import { RescueServiceCreate, RescueServiceEdit, RescueServiceView } from './pages/rescue-service/RescueServiceForm';
 import RescuePackageList from './pages/rescue-package/RescuePackageList';
 import { RescuePackageCreate, RescuePackageEdit, RescuePackageView } from './pages/rescue-package/RescuePackageForm';
+import AppQuickCreateOrder from './pages/AppQuickCreateOrder';
 import { ShiftConfigProvider } from './context/ShiftConfigContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const initialData: FormData = {
   orderId: '',
@@ -116,13 +119,18 @@ const App: React.FC = () => {
 
   // Helper to map URL path to Step enum for Sidebar/Stepper compatibility
   const getStepFromPath = (path: string): Step => {
+    if (path.includes('/app/quick-create') || path.includes('/partner/quick-order')) return Step.APP_QUICK_CREATE;
     if (path.includes('/admin/rescue-providers')) return Step.RESCUE_PROVIDER_MANAGEMENT;
     if (path.includes('/admin/rescue-stations')) return Step.RESCUE_STATION_ADMIN;
     if (path.includes('/admin/rescue-services')) return Step.SERVICE_MANAGEMENT;
     if (path.includes('/admin/rescue-packages')) return Step.PACKAGE_CATALOG;
     if (path.includes('/partner/vehicles')) return Step.PARTNER_VEHICLES;
-    if (path.includes('/partner/tool-config')) return Step.PARTNER_TOOL_CONFIG;
+    if (path.includes('/partner/maintenance')) return Step.PARTNER_MAINTENANCE;
+    if (path.includes('/partner/tool-config') || path.includes('/partner/vehicle-tools')) return Step.PARTNER_TOOL_CONFIG;
     if (path.includes('/partner/staff')) return Step.PARTNER_STAFF;
+    if (path.includes('/partner/resource-board')) return Step.PARTNER_RESOURCE_BOARD;
+    if (path.includes('/partner/shift-config')) return Step.PARTNER_SHIFT_CONFIG;
+    if (path.includes('/partner/shift-schedule')) return Step.PARTNER_SHIFT_SCHEDULE;
     if (path.includes('/partner/reports')) return Step.PARTNER_REPORTS;
     if (path.includes('/partner/org')) return Step.PARTNER_ORG;
     if (path.includes('/shift-definition-management')) return Step.SHIFT_DEFINITION_MANAGEMENT;
@@ -134,7 +142,6 @@ const App: React.FC = () => {
     if (path.includes('/pricing-policy')) return Step.PRICING_POLICY;
     if (path.includes('/payment-request-management')) return Step.PAYMENT_REQUEST_MANAGEMENT;
     if (path.includes('/package-import')) return Step.PACKAGE_IMPORT;
-    if (path.includes('/customer-management')) return Step.CUSTOMER_MANAGEMENT;
     if (path.includes('/package-purchase-management')) return Step.PACKAGE_PURCHASE_MANAGEMENT;
     if (path.includes('/business-management')) return Step.BUSINESS_MANAGEMENT;
     if (path.includes('/rsa-dashboard')) return Step.RSA_DASHBOARD;
@@ -331,7 +338,6 @@ const App: React.FC = () => {
   const handleNavigateToPricingPolicy = () => navigate('/pricing-policy');
   const handleNavigateToBusinessManagement = () => navigate('/business-management');
   const handleNavigateToPackagePurchaseManagement = () => navigate('/package-purchase-management');
-  const handleNavigateToCustomerManagement = () => navigate('/customer-management');
   const handleNavigateToPackageImport = () => navigate('/package-import');
   const handleNavigateToPaymentRequestManagement = () => navigate('/payment-request-management');
   const handleNavigateToLocationSearch = () => navigate('/location-search');
@@ -439,7 +445,6 @@ const App: React.FC = () => {
     Step.PRICING_POLICY,
     Step.BUSINESS_MANAGEMENT,
     Step.PACKAGE_PURCHASE_MANAGEMENT,
-    Step.CUSTOMER_MANAGEMENT,
     Step.PACKAGE_IMPORT,
     Step.PAYMENT_REQUEST_MANAGEMENT,
     Step.LOCATION_SEARCH,
@@ -449,6 +454,7 @@ const App: React.FC = () => {
     Step.RESCUE_FEE_CONFIGURATION,
     Step.RESCUE_FEE_CRITERIA,
     Step.PARTNER_VEHICLES,
+    Step.PARTNER_MAINTENANCE,
     Step.PARTNER_TOOL_CONFIG,
     Step.PARTNER_STAFF,
     Step.PARTNER_REPORTS,
@@ -457,135 +463,145 @@ const App: React.FC = () => {
     Step.RESCUE_STATION_ADMIN,
     Step.SERVICE_MANAGEMENT,
     Step.PACKAGE_CATALOG,
+    Step.APP_QUICK_CREATE,
   ];
   
   const isStepperVisible = !hideStepperSteps.includes(currentStep);
 
   const getBreadcrumbLabels = () => {
-    if (currentStep === Step.RSA_DASHBOARD) return ['Giám sát cứu hộ', 'Tổng quan'];
-    if (currentStep === Step.RESCUE_SUPERVISION) return ['Giám sát cứu hộ', 'Giám sát'];
-    if (currentStep === Step.SUPPORTING) return ['Giám sát cứu hộ', 'Đang hỗ trợ'];
-    if (currentStep === Step.ORDER_MANAGEMENT) return ['Chăm sóc khách hàng', 'Quản lý đơn hàng'];
-    if (currentStep === Step.GUEST_ORDER) return ['Chăm sóc khách hàng', 'Chi tiết đơn hàng'];
-    if (currentStep === Step.STATION_CREATE) return ['Trạm cứu hộ', 'Tạo đơn cứu hộ'];
-    if (currentStep === Step.STATION_MANAGEMENT) return ['Trạm cứu hộ', 'Quản lý đơn cứu hộ'];
-    if (currentStep === Step.STATION_COVERAGE) return ['Trạm cứu hộ', 'Độ phủ theo tỉnh'];
-    if (currentStep === Step.STATION_ORDERS) return ['Trạm cứu hộ', 'Quản lý đơn'];
-    if (currentStep === Step.STAFF_MANAGEMENT) return ['Quản trị hệ thống', 'Quản lý nhân viên'];
-    if (currentStep === Step.PRICING_POLICY) return ['Thêm mới chính sách giá VETC'];
+    if (currentStep === Step.RSA_DASHBOARD) return ['Giám sát & Điều phối', 'Tổng quan vận hành'];
+    if (currentStep === Step.RESCUE_SUPERVISION) return ['Giám sát & Điều phối', 'Giám sát trực tiếp'];
+    if (currentStep === Step.SUPPORTING) return ['Giám sát & Điều phối', 'Đơn đang cứu hộ'];
+    if (currentStep === Step.PARTNER_RESOURCE_BOARD) return ['Giám sát & Điều phối', 'Bảng nguồn lực xe & tài xế'];
+    if (currentStep === Step.STATION_CREATE) return ['Quản lý đơn cứu hộ', 'Tạo đơn cứu hộ'];
+    if (currentStep === Step.APP_QUICK_CREATE) return ['Quản lý đơn cứu hộ', 'Tạo nhanh App (FL-M3-04)'];
+    if (currentStep === Step.STATION_MANAGEMENT) return ['Quản lý đơn cứu hộ', 'Danh sách đơn cứu hộ'];
+    if (currentStep === Step.STATION_COVERAGE) return ['Quản lý đơn cứu hộ', 'Bản đồ độ phủ trạm'];
+    if (currentStep === Step.STATION_ORDERS) return ['Quản lý đơn cứu hộ', 'Chi tiết đơn'];
+    if (currentStep === Step.ORDER_MANAGEMENT) return ['Quản lý đơn cứu hộ', 'Quản lý đơn hàng'];
+    if (currentStep === Step.GUEST_ORDER) return ['Quản lý đơn cứu hộ', 'Chi tiết đơn hàng'];
+    if (currentStep === Step.STAFF_MANAGEMENT) return ['Cấu hình & Quản trị', 'Tài khoản & Phân quyền'];
+    if (currentStep === Step.PRICING_POLICY) return ['Cấu hình & Quản trị', 'Chính sách giá VETC'];
     if (currentStep === Step.BUSINESS_MANAGEMENT) {
-      if (location.pathname.includes('/create')) return ['Quản trị hệ thống', 'Thêm mới doanh nghiệp'];
-      if (location.pathname.includes('/edit/')) return ['Quản trị hệ thống', 'Chỉnh sửa doanh nghiệp'];
-      return ['Quản trị hệ thống', 'Quản lý doanh nghiệp'];
+      if (location.pathname.includes('/create')) return ['Cấu hình & Quản trị', 'Thêm mới doanh nghiệp'];
+      if (location.pathname.includes('/edit/')) return ['Cấu hình & Quản trị', 'Chỉnh sửa doanh nghiệp'];
+      return ['Cấu hình & Quản trị', 'Quản lý doanh nghiệp'];
     }
     if (currentStep === Step.PACKAGE_PURCHASE_MANAGEMENT) {
-      return ['Quản trị hệ thống', 'Quản lý mua gói'];
-    }
-    if (currentStep === Step.CUSTOMER_MANAGEMENT) {
-      return ['Quản trị hệ thống', 'Gói cứu hộ', 'Quản lý khách hàng'];
+      return ['Cấu hình & Quản trị', 'Quản lý mua gói'];
     }
     if (currentStep === Step.PACKAGE_IMPORT) {
-      return ['Quản trị hệ thống', 'Gói cứu hộ', 'Import gói cứu hộ'];
+      return ['Cấu hình & Quản trị', 'Gói cứu hộ', 'Import gói cứu hộ'];
     }
     if (currentStep === Step.LOCATION_SEARCH) {
-      return ['Chăm sóc khách hàng', 'Tìm kiếm vị trí'];
+      return ['Quản lý đơn cứu hộ', 'Tìm kiếm vị trí'];
     }
-    if (currentStep === Step.SHIFT_DEFINITION_MANAGEMENT) {
-      return ['Quản trị hệ thống', 'Cấu hình ca làm việc'];
+    if (currentStep === Step.SHIFT_DEFINITION_MANAGEMENT || currentStep === Step.PARTNER_SHIFT_CONFIG) {
+      return ['Nhân sự & Ca trực', 'Cấu hình ca làm việc'];
     }
-    if (currentStep === Step.SHIFT_MONTHLY_SCHEDULE) {
-      return ['Quản trị hệ thống', 'Lịch ca theo tháng'];
+    if (currentStep === Step.SHIFT_MONTHLY_SCHEDULE || currentStep === Step.PARTNER_SHIFT_SCHEDULE) {
+      return ['Nhân sự & Ca trực', 'Lịch ca theo tháng'];
     }
     if (currentStep === Step.FLOOD_ZONE_MANAGEMENT) {
-      return ['Quản trị hệ thống', 'Quản lý khu vực ngập lụt'];
+      return ['Cấu hình & Quản trị', 'Quản lý khu vực ngập lụt'];
     }
     if (currentStep === Step.RESCUE_FEE_CONFIGURATION) {
-      if (location.pathname.includes('/create')) return ['Quản trị hệ thống', 'Cấu hình phí', 'Tạo bảng phí'];
-      if (location.pathname.includes('/edit/')) return ['Quản trị hệ thống', 'Cấu hình phí', 'Chỉnh sửa bảng phí'];
+      if (location.pathname.includes('/create')) return ['Cấu hình & Quản trị', 'Cấu hình phí', 'Tạo bảng phí'];
+      if (location.pathname.includes('/edit/')) return ['Cấu hình & Quản trị', 'Cấu hình phí', 'Chỉnh sửa bảng phí'];
       if (location.pathname.match(/\/rescue-fee-config\/[^/]+$/)) {
-        return ['Quản trị hệ thống', 'Cấu hình phí', 'Chi tiết bảng phí'];
+        return ['Cấu hình & Quản trị', 'Cấu hình phí', 'Chi tiết bảng phí'];
       }
-      return ['Quản trị hệ thống', 'Cấu hình phí cứu hộ'];
+      return ['Cấu hình & Quản trị', 'Cấu hình phí cứu hộ'];
     }
     if (currentStep === Step.RESCUE_FEE_CRITERIA) {
-      return ['Quản trị hệ thống', 'Phí cứu hộ', 'Danh mục tiêu chí'];
+      return ['Cấu hình & Quản trị', 'Cấu hình phí', 'Danh mục tiêu chí'];
     }
     if (currentStep === Step.PARTNER_VEHICLES) {
-      if (location.pathname.endsWith('/partner/vehicles/new')) {
-        return ['Đối tác cứu hộ', 'Hồ sơ xe', 'Danh sách phương tiện', 'Thêm xe'];
-      }
-      if (location.pathname.match(/\/partner\/vehicles\/[^/]+$/)) {
-        return ['Đối tác cứu hộ', 'Hồ sơ xe', 'Danh sách phương tiện', 'Chi tiết xe'];
-      }
-      return ['Đối tác cứu hộ', 'Hồ sơ xe', 'Danh sách phương tiện'];
-    }
-    if (currentStep === Step.PARTNER_TOOL_CONFIG) return ['Đối tác cứu hộ', 'Hồ sơ xe', 'Cấu hình công cụ'];
-    if (currentStep === Step.PARTNER_STAFF) {
-      if (location.pathname.endsWith('/partner/staff/new')) {
-        return ['Đối tác cứu hộ', 'Quản lý nhân viên', 'Thêm nhân viên'];
-      }
-      if (location.pathname.match(/\/partner\/staff\/[^/]+$/)) {
-        return ['Đối tác cứu hộ', 'Quản lý nhân viên', 'Chi tiết nhân viên'];
-      }
-      return ['Đối tác cứu hộ', 'Quản lý nhân viên'];
-    }
-    if (currentStep === Step.PARTNER_REPORTS) return ['Đối tác cứu hộ', 'Báo cáo'];
-    if (currentStep === Step.PARTNER_ORG) return ['Đối tác cứu hộ', 'Cấu hình tổ chức'];
-    if (currentStep === Step.RESCUE_PROVIDER_MANAGEMENT) {
-      if (location.pathname.endsWith('/admin/rescue-providers/new')) {
-        return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Thêm mới đối tác cứu hộ'];
+      if (location.pathname === '/partner/vehicles/new' || location.pathname.endsWith('/vehicles/new')) {
+        return ['Quản lý đội xe', 'Hồ sơ phương tiện', 'Danh sách phương tiện', 'Thêm mới xe'];
       }
       if (location.pathname.endsWith('/edit')) {
-        return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Chỉnh sửa đối tác cứu hộ'];
+        return ['Quản lý đội xe', 'Hồ sơ phương tiện', 'Danh sách phương tiện', 'Cập nhật xe'];
+      }
+      if (location.pathname.match(/\/partner\/vehicles\/[^/]+$/)) {
+        return ['Quản lý đội xe', 'Hồ sơ phương tiện', 'Danh sách phương tiện', 'Chi tiết xe'];
+      }
+      return ['Quản lý đội xe', 'Hồ sơ phương tiện', 'Danh sách phương tiện'];
+    }
+    if (currentStep === Step.PARTNER_TOOL_CONFIG) return ['Quản lý đội xe', 'Hồ sơ phương tiện', 'Cấu hình công cụ xe'];
+    if (currentStep === Step.PARTNER_MAINTENANCE) {
+      const tab = new URLSearchParams(location.search).get('tab') || location.pathname.split('/partner/maintenance/')[1];
+      if (tab === 'requests') return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Yêu cầu sửa chữa'];
+      if (tab === 'orders') return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Lệnh sửa chữa / bảo dưỡng'];
+      if (tab === 'history') return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Lịch sử bảo dưỡng'];
+      return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Lịch bảo dưỡng'];
+    }
+    if (currentStep === Step.PARTNER_STAFF) {
+      if (location.pathname.endsWith('/partner/staff/new')) {
+        return ['Nhân sự & Ca trực', 'Danh sách nhân viên', 'Thêm nhân viên'];
+      }
+      if (location.pathname.match(/\/partner\/staff\/[^/]+$/)) {
+        return ['Nhân sự & Ca trực', 'Danh sách nhân viên', 'Chi tiết nhân viên'];
+      }
+      return ['Nhân sự & Ca trực', 'Danh sách nhân viên'];
+    }
+    if (currentStep === Step.PARTNER_REPORTS) return ['Báo cáo & Thống kê', 'Báo cáo vận hành'];
+    if (currentStep === Step.PARTNER_ORG) return ['Cấu hình & Quản trị', 'Cơ cấu tổ chức & Trạm'];
+    if (currentStep === Step.RESCUE_PROVIDER_MANAGEMENT) {
+      if (location.pathname.endsWith('/admin/rescue-providers/new')) {
+        return ['Cấu hình & Quản trị', 'Quản lý đối tác cứu hộ', 'Thêm mới đối tác'];
+      }
+      if (location.pathname.endsWith('/edit')) {
+        return ['Cấu hình & Quản trị', 'Quản lý đối tác cứu hộ', 'Chỉnh sửa đối tác'];
       }
       if (location.pathname.match(/\/admin\/rescue-providers\/[^/]+$/)) {
-        return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Xem chi tiết đối tác cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Quản lý đối tác cứu hộ', 'Xem chi tiết đối tác'];
       }
-      return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Đối tác cứu hộ'];
+      return ['Cấu hình & Quản trị', 'Quản lý đối tác cứu hộ'];
     }
     if (currentStep === Step.RESCUE_STATION_ADMIN) {
       if (location.pathname.endsWith('/admin/rescue-stations/new')) {
-        return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Thêm mới trạm cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Quản lý trạm cứu hộ', 'Thêm mới trạm cứu hộ'];
       }
       if (location.pathname.endsWith('/edit')) {
-        return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Chỉnh sửa trạm cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Quản lý trạm cứu hộ', 'Chỉnh sửa trạm cứu hộ'];
       }
       if (location.pathname.match(/\/admin\/rescue-stations\/[^/]+$/)) {
-        return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Xem chi tiết điểm dịch vụ'];
+        return ['Cấu hình & Quản trị', 'Quản lý trạm cứu hộ', 'Chi tiết trạm cứu hộ'];
       }
-      return ['Quản trị hệ thống', 'Quản lý đối tác cứu hộ', 'Trạm cứu hộ'];
+      return ['Cấu hình & Quản trị', 'Quản lý trạm cứu hộ'];
     }
     if (currentStep === Step.SERVICE_MANAGEMENT) {
       if (location.pathname.endsWith('/admin/rescue-services/new')) {
-        return ['Quản trị hệ thống', 'Gói cứu hộ', 'Thêm mới dịch vụ cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Danh mục dịch vụ', 'Thêm mới dịch vụ'];
       }
       if (location.pathname.endsWith('/edit')) {
-        return ['Quản trị hệ thống', 'Gói cứu hộ', 'Chỉnh sửa dịch vụ cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Danh mục dịch vụ', 'Chỉnh sửa dịch vụ'];
       }
       if (location.pathname.match(/\/admin\/rescue-services\/[^/]+$/)) {
-        return ['Quản trị hệ thống', 'Gói cứu hộ', 'Xem chi tiết dịch vụ cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Danh mục dịch vụ', 'Chi tiết dịch vụ'];
       }
-      return ['Quản trị hệ thống', 'Gói cứu hộ', 'Dịch vụ cứu hộ'];
+      return ['Cấu hình & Quản trị', 'Danh mục dịch vụ'];
     }
     if (currentStep === Step.PACKAGE_CATALOG) {
       if (location.pathname.endsWith('/admin/rescue-packages/new')) {
-        return ['Quản trị hệ thống', 'Gói cứu hộ', 'Thêm mới gói cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Cấu hình gói cứu hộ', 'Thêm mới gói'];
       }
       if (location.pathname.endsWith('/edit')) {
-        return ['Quản trị hệ thống', 'Gói cứu hộ', 'Chỉnh sửa gói cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Cấu hình gói cứu hộ', 'Chỉnh sửa gói'];
       }
       if (location.pathname.match(/\/admin\/rescue-packages\/[^/]+$/)) {
-        return ['Quản trị hệ thống', 'Gói cứu hộ', 'Xem chi tiết gói cứu hộ'];
+        return ['Cấu hình & Quản trị', 'Cấu hình gói cứu hộ', 'Chi tiết gói'];
       }
-      return ['Quản trị hệ thống', 'Gói cứu hộ', 'Cấu hình gói cứu hộ'];
+      return ['Cấu hình & Quản trị', 'Cấu hình gói cứu hộ'];
     }
     if (currentStep === Step.PAYMENT_REQUEST_MANAGEMENT) {
       if (location.pathname.includes('/payment-request-management/')) {
-        return ['Quản trị hệ thống', 'Quản lý thanh toán', 'Tạo đề nghị thanh toán'];
+        return ['Cấu hình & Quản trị', 'Quản lý thanh toán', 'Tạo đề nghị thanh toán'];
       }
-      return ['Quản trị hệ thống', 'Quản lý thanh toán', 'Đề nghị thanh toán'];
+      return ['Cấu hình & Quản trị', 'Quản lý thanh toán', 'Đề nghị thanh toán'];
     }
-    return ['Chăm sóc khách hàng', 'Tạo đơn cứu hộ'];
+    return ['Quản lý đơn cứu hộ', 'Tạo đơn cứu hộ'];
   };
 
   const breadcrumbLabels = getBreadcrumbLabels();
@@ -608,7 +624,6 @@ const App: React.FC = () => {
         onNavigatePricingPolicy={handleNavigateToPricingPolicy}
         onNavigateBusinessManagement={handleNavigateToBusinessManagement}
         onNavigatePackagePurchaseManagement={handleNavigateToPackagePurchaseManagement}
-        onNavigateCustomerManagement={handleNavigateToCustomerManagement}
         onNavigatePackageImport={handleNavigateToPackageImport}
         onNavigatePaymentRequestManagement={handleNavigateToPaymentRequestManagement}
         onNavigateLocationSearch={handleNavigateToLocationSearch}
@@ -675,6 +690,7 @@ const App: React.FC = () => {
               {/*)}*/}
               
               <div className={`w-full min-w-0 ${currentStep === Step.RESCUE_SUPERVISION ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+              <ErrorBoundary>
               <ShiftConfigProvider>
               <Routes>
                 <Route path="/" element={<Navigate to="/create" replace />} />
@@ -776,9 +792,6 @@ const App: React.FC = () => {
                 <Route path="/package-purchase-management" element={
                   <PackagePurchaseManagement />
                 } />
-                <Route path="/customer-management" element={
-                  <CustomerManagement />
-                } />
                 <Route path="/package-import" element={
                   <PackageImportManagement />
                 } />
@@ -816,13 +829,21 @@ const App: React.FC = () => {
                   <RescueFeeCriteriaManagement />
                 } />
                 <Route path="/partner/vehicles/new" element={<PartnerVehicleDetail />} />
+                <Route path="/partner/vehicles/:id/edit" element={<PartnerVehicleDetail />} />
                 <Route path="/partner/vehicles/:id" element={<PartnerVehicleDetail />} />
                 <Route path="/partner/vehicles" element={<PartnerVehicleList />} />
-                <Route path="/partner/vehicle-tools" element={<Navigate to="/partner/vehicles" replace />} />
+                <Route path="/partner/maintenance" element={<PartnerMaintenance />} />
+                <Route path="/partner/maintenance/:subTab" element={<PartnerMaintenance />} />
+                <Route path="/partner/vehicle-tools" element={<PartnerToolConfig />} />
                 <Route path="/partner/tool-config" element={<PartnerToolConfig />} />
-                <Route path="/partner/staff/new" element={<PartnerStaffDetail />} />
-                <Route path="/partner/staff/:id" element={<PartnerStaffDetail />} />
+                <Route path="/partner/staff/new" element={<PartnerStaffDetail key="staff-new" />} />
+                <Route path="/partner/staff/:id" element={<PartnerStaffDetail key="staff-detail" />} />
                 <Route path="/partner/staff" element={<PartnerStaff />} />
+                <Route path="/partner/resource-board" element={<PartnerResourceBoard />} />
+                <Route path="/partner/quick-order" element={<AppQuickCreateOrder />} />
+                <Route path="/app/quick-create" element={<AppQuickCreateOrder />} />
+                <Route path="/partner/shift-config" element={<ShiftDefinitionManagement />} />
+                <Route path="/partner/shift-schedule" element={<ShiftMonthlySchedule />} />
                 <Route path="/partner/reports" element={<PartnerReports />} />
                 <Route path="/partner/org" element={<PartnerOrgConfig />} />
                 <Route path="/admin/rescue-providers/new" element={<RescueProviderCreate />} />
@@ -843,6 +864,7 @@ const App: React.FC = () => {
                 <Route path="/admin/rescue-packages" element={<RescuePackageList />} />
               </Routes>
               </ShiftConfigProvider>
+              </ErrorBoundary>
               </div>
             </div>
           </div>

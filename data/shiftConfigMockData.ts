@@ -1,4 +1,4 @@
-export type ShiftRole = 'OSA' | 'CSKH';
+export type ShiftRole = 'OSA' | 'CSKH' | 'DRIVER';
 
 export type ShiftType = 'ADMIN' | 'TIME_SLOT' | 'SPLIT';
 
@@ -25,6 +25,9 @@ export type ShiftDefinition = {
   /** Số người tối thiểu / tối đa theo KEY ca (9 ca chính) */
   minStaff?: number;
   maxStaff?: number;
+  /** Nghỉ giữa ca (work_shift_break) */
+  breakStart?: string;
+  breakEnd?: string;
 };
 
 /**
@@ -288,6 +291,7 @@ function buildRoleShifts(role: ShiftRole): ShiftDefinition[] {
 export const MOCK_SHIFT_DEFINITIONS: ShiftDefinition[] = [
   ...buildRoleShifts('OSA'),
   ...buildRoleShifts('CSKH'),
+  ...buildRoleShifts('DRIVER'),
 ];
 
 const DAY_END_MIN = 24 * 60;
@@ -313,6 +317,7 @@ export function formatShiftTimeLabel(timeStart: string, timeEnd: string): string
 export const MOCK_MIN_SHIFT_UNITS_FROM_BE: Record<ShiftRole, number> = {
   OSA: 16,
   CSKH: 18,
+  DRIVER: 16,
 };
 
 /** @deprecated Dùng minStaff trên ShiftDefinition — giữ cho màn cấu hình tương thích */
@@ -338,6 +343,66 @@ export const MOCK_SHIFT_LEADERS: Record<ShiftRole, { id: string; name: string; c
     { id: 'l3', code: 'CSKH-TL-01', name: 'Phạm Minh Anh' },
     { id: 'l4', code: 'CSKH-TL-02', name: 'Lê Hoài Thu' },
   ],
+  DRIVER: [
+    { id: 'l5', code: 'DRV-TL-01', name: 'Ngô Đức Minh' },
+    { id: 'l6', code: 'DRV-TL-02', name: 'Trần Văn Bình' },
+  ],
+};
+
+// ─── Driver mock data per station ──────────────────────────────────────────
+
+export interface DriverStationMockRecord {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export const MOCK_STATIONS_FOR_SHIFT = [
+  { id: 'stn-hn1', name: 'Trạm HN - Hoàng Mai' },
+  { id: 'stn-hn2', name: 'Trạm HN - Cầu Giấy' },
+  { id: 'stn-hp1', name: 'Trạm Hải Phòng' },
+  { id: 'stn-hcm1', name: 'Trạm HCM - Bình Thạnh' },
+  { id: 'stn-dn1', name: 'Trạm Đà Nẵng' },
+];
+
+export const MOCK_DRIVERS_BY_STATION: Record<string, DriverStationMockRecord[]> = {
+  'stn-hn1': [
+    { id: 'drv-hn1-01', code: 'TX-HN1-01', name: 'NGÔ ĐỨC MINH', phone: '0988 123 456', status: 'ACTIVE' },
+    { id: 'drv-hn1-02', code: 'TX-HN1-02', name: 'LÊ VĂN CƯỜNG', phone: '0977 234 567', status: 'ACTIVE' },
+    { id: 'drv-hn1-03', code: 'TX-HN1-03', name: 'PHẠM HOÀNG ANH', phone: '0966 345 678', status: 'ACTIVE' },
+    { id: 'drv-hn1-04', code: 'TX-HN1-04', name: 'TRẦN MINH NHẬT', phone: '0955 456 789', status: 'ACTIVE' },
+    { id: 'drv-hn1-05', code: 'TX-HN1-05', name: 'ĐINH VĂN PHÚC', phone: '0944 567 890', status: 'ACTIVE' },
+    { id: 'drv-hn1-06', code: 'TX-HN1-06', name: 'NGUYỄN QUỐC BẢO', phone: '0933 678 901', status: 'INACTIVE' },
+  ],
+  'stn-hn2': [
+    { id: 'drv-hn2-01', code: 'TX-HN2-01', name: 'HOÀNG MINH ĐĂNG', phone: '0922 789 012', status: 'ACTIVE' },
+    { id: 'drv-hn2-02', code: 'TX-HN2-02', name: 'VŨ THANH LONG', phone: '0911 890 123', status: 'ACTIVE' },
+    { id: 'drv-hn2-03', code: 'TX-HN2-03', name: 'BÙI VĂN HÙNG', phone: '0900 901 234', status: 'ACTIVE' },
+  ],
+  'stn-hp1': [
+    { id: 'drv-hp1-01', code: 'TX-HP1-01', name: 'TRẦN VĂN BÌNH', phone: '0977 012 345', status: 'ACTIVE' },
+    { id: 'drv-hp1-02', code: 'TX-HP1-02', name: 'NGUYỄN ĐỨC SƠN', phone: '0966 123 456', status: 'ACTIVE' },
+    { id: 'drv-hp1-03', code: 'TX-HP1-03', name: 'LÝ VĂN TUẤN', phone: '0955 234 567', status: 'ACTIVE' },
+    { id: 'drv-hp1-04', code: 'TX-HP1-04', name: 'PHÙNG QUANG VINH', phone: '0944 345 678', status: 'ACTIVE' },
+  ],
+  'stn-hcm1': [
+    { id: 'drv-hcm1-01', code: 'TX-HCM1-01', name: 'LÊ HOÀNG CƯỜNG', phone: '0933 456 789', status: 'ACTIVE' },
+    { id: 'drv-hcm1-02', code: 'TX-HCM1-02', name: 'ĐẶNG VĂN KHOA', phone: '0922 567 890', status: 'ACTIVE' },
+    { id: 'drv-hcm1-03', code: 'TX-HCM1-03', name: 'MAI THANH TÙNG', phone: '0911 678 901', status: 'ACTIVE' },
+  ],
+  'stn-dn1': [
+    { id: 'drv-dn1-01', code: 'TX-DN1-01', name: 'PHAN THỊ DUYÊN', phone: '0900 789 012', status: 'ACTIVE' },
+    { id: 'drv-dn1-02', code: 'TX-DN1-02', name: 'TRƯƠNG VĂN ĐẠT', phone: '0988 890 123', status: 'ACTIVE' },
+    { id: 'drv-dn1-03', code: 'TX-DN1-03', name: 'HỒ VĂN KHẢI', phone: '0977 901 234', status: 'ACTIVE' },
+  ],
+};
+
+export const MOCK_MIN_SHIFT_UNITS_FROM_BE_EXTENDED: Record<ShiftRole, number> = {
+  OSA: 18,
+  CSKH: 14,
+  DRIVER: 16,
 };
 
 function slotMinuteRanges(slot: TimeSlotStaffingRule): [number, number][] {
@@ -655,6 +720,40 @@ export const buildMockMonthlyEmployees = (
   return employees;
 };
 
+/** Build mock monthly employees for DRIVER role, keyed by stationId */
+export const buildMockDriverEmployees = (
+  stationId: string,
+  daysInMonth: number,
+  yearMonth?: string
+): MonthlyEmployee[] => {
+  const drivers = MOCK_DRIVERS_BY_STATION[stationId] ?? [];
+  const keys = ['C1', 'C2', 'C3'];
+  const workKeys = keys;
+
+  const pick = (day: number, offset: number): string | null => {
+    if (day % 7 === 0) return null; // nghỉ CN
+    return workKeys[(day + offset) % workKeys.length];
+  };
+
+  const base = (driver: typeof drivers[0], offset: number): MonthlyEmployee => ({
+    id: driver.id,
+    code: driver.code,
+    name: driver.name,
+    isNewEmployee: false,
+    assignments: (() => {
+      const a: Record<number, string | null> = {};
+      for (let d = 1; d <= daysInMonth; d++) {
+        a[d] = driver.status === 'ACTIVE' ? pick(d, offset) : null;
+      }
+      return a;
+    })(),
+  });
+
+  return drivers
+    .filter((d) => d.status === 'ACTIVE')
+    .map((d, i) => base(d, i));
+};
+
 export function getDaysInMonth(yearMonth: string): number {
   const [y, m] = yearMonth.split('-').map(Number);
   return new Date(y, m, 0).getDate();
@@ -944,6 +1043,9 @@ export const MOCK_EXCEL_IMPORT_PREVIEW: Record<ShiftRole, MonthlyEmployee[]> = {
   CSKH: [
     { id: 'imp-3', code: 'CSKH-010', name: 'Import — Phạm Test', isNewEmployee: false, assignments: buildAssignments((d) => (d % 2 === 0 ? 'C1' : 'CG1'), 31) },
     { id: 'imp-4', code: 'CSKH-011', name: 'Import — Lê Test', isNewEmployee: true, assignments: buildAssignments((d) => 'C2', 31) },
+  ],
+  DRIVER: [
+    { id: 'imp-5', code: 'DRV-010', name: 'Import — Nguyễn Tài Xế', isNewEmployee: false, assignments: buildAssignments((d) => (d % 3 === 0 ? null : 'C1'), 31) },
   ],
 };
 

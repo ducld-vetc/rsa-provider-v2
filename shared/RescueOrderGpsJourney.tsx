@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Navigation, Route, Square } from 'lucide-react';
+import { Check, Clock, Copy, MapPin, Navigation, Route, Square } from 'lucide-react';
 import {
   GPS_PLAYBACK_DEMO_CASES,
   filterPointsInRange,
@@ -18,6 +18,7 @@ import {
   type GpsPlaybackSegment,
   type GpsTrailPoint,
 } from '../data/rescueGpsPlaybackMockData';
+import { INITIAL_VEHICLE_GPS_DATA, type VehicleGpsStatus } from '../data/gpsTrackingMockData';
 
 const MAP_FALLBACK: L.LatLngTuple = [21.0285, 105.8452];
 
@@ -63,7 +64,13 @@ function FitJourney({ points }: { points: L.LatLngTuple[] }) {
   return null;
 }
 
-const RescueOrderGpsJourney: React.FC<{ plate?: string; footer?: React.ReactNode }> = ({ plate, footer }) => {
+interface RescueOrderGpsJourneyProps {
+  plate?: string;
+  footer?: React.ReactNode;
+  gpsStatus?: VehicleGpsStatus;
+}
+
+const RescueOrderGpsJourney: React.FC<RescueOrderGpsJourneyProps> = ({ plate, footer, gpsStatus }) => {
   const [demoCase, setDemoCase] = useState<GpsPlaybackDemoCaseId>('with_data');
   const data = getRescueGpsPlaybackMock(demoCase);
   const windowStart = useMemo(() => new Date(data.windowStartIso), [data.windowStartIso]);
@@ -72,6 +79,27 @@ const RescueOrderGpsJourney: React.FC<{ plate?: string; footer?: React.ReactNode
   const [fromLocal, setFromLocal] = useState(() => toDatetimeLocalValue(data.windowStartIso));
   const [toLocal, setToLocal] = useState(() => toDatetimeLocalValue(data.windowEndIso));
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+
+  const [copiedCoords, setCopiedCoords] = useState(false);
+  const handleCopyCoords = (coordsStr: string) => {
+    navigator.clipboard.writeText(coordsStr);
+    setCopiedCoords(true);
+    setTimeout(() => setCopiedCoords(false), 2000);
+  };
+
+  const currentGps = useMemo(() => {
+    if (gpsStatus) return gpsStatus;
+    if (plate) {
+      const normalized = plate.replace(/[^a-zA-Z0-9]/g, '');
+      const found = Object.values(INITIAL_VEHICLE_GPS_DATA).find(
+        (v) => v.plate === plate || v.plateNormalized === normalized
+      );
+      if (found) return found;
+    }
+    return INITIAL_VEHICLE_GPS_DATA['v1'];
+  }, [gpsStatus, plate]);
+
+  const currentSignal = currentGps?.signal;
 
   useEffect(() => {
     setFromLocal(toDatetimeLocalValue(data.windowStartIso));
@@ -184,25 +212,81 @@ const RescueOrderGpsJourney: React.FC<{ plate?: string; footer?: React.ReactNode
       </div>
 
       <div className="lg:col-span-4 border-l flex flex-col bg-white overflow-hidden text-left min-h-0">
-        <div className="p-3 border-b bg-gray-50/80 space-y-2">
-          <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-2.5 py-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest shrink-0">Demo</span>
-            {GPS_PLAYBACK_DEMO_CASES.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setDemoCase(item.id)}
-                className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
-                  demoCase === item.id
-                    ? 'bg-white border-blue-200 text-blue-800 shadow-sm'
-                    : 'bg-transparent border-transparent text-blue-600 hover:bg-white/60'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+        {/* BLOCK VỊ TRÍ HIỆN TẠI (ĐÃ CHUYỂN TỪ BANNER XUỐNG ĐÂY) */}
+        <div className="p-3 border-b bg-gradient-to-b from-emerald-50/40 via-white to-gray-50/70 space-y-2.5">
+          {/* Hàng 1: Trạng thái GPS + Thời điểm cập nhật */}
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded border border-emerald-300 flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  {!currentSignal?.signalLost && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  )}
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${currentSignal?.signalLost ? 'bg-amber-500' : 'bg-emerald-600'}`}></span>
+                </span>
+                {currentSignal?.signalLost ? 'Mất tín hiệu' : 'GPS Trực tuyến'}
+              </span>
+
+              {currentSignal?.reason && (
+                <span className="text-[10px] font-semibold text-gray-700 px-1.5 py-0.5 rounded bg-white border border-gray-200 shadow-xs">
+                  {currentSignal.reason}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1 text-[10px] text-gray-500">
+              <Clock size={11} className="text-gray-400" />
+              <span>{currentSignal?.lastSeenAt || 'Vừa xong'}</span>
+            </div>
           </div>
-          <p className="text-[10px] text-gray-500">{data.syncMessage}</p>
+
+          {/* Hộp địa chỉ vị trí hiện tại */}
+          <div className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-xs space-y-1.5">
+            <div className="flex items-start gap-1.5">
+              <MapPin size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-gray-900 leading-snug break-words">
+                  {currentSignal?.address || 'Chưa có thông tin địa chỉ'}
+                </div>
+                {currentSignal?.lat && currentSignal?.lng && (
+                  <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-gray-100 text-[11px] text-gray-500">
+                    <span className="font-mono text-[10.5px]">
+                      {currentSignal.lat.toFixed(4)}° N, {currentSignal.lng.toFixed(4)}° E
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCoords(`${currentSignal.lat}, ${currentSignal.lng}`)}
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 transition px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                      title="Sao chép tọa độ"
+                    >
+                      {copiedCoords ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                      <span>{copiedCoords ? 'Đã chép' : 'Sao chép'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Dòng phụ: Căn cứ ca & IMEI & Tag trạng thái */}
+          <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-gray-500 pt-0.5">
+            {currentSignal?.inShiftBasis && currentSignal.inShiftBasis !== '—' && (
+              <span className="truncate max-w-[210px] text-gray-600" title={currentSignal.inShiftBasis}>
+                Ca: <strong className="text-gray-800 font-medium">{currentSignal.inShiftBasis}</strong>
+              </span>
+            )}
+            <div className="flex items-center gap-1.5 ml-auto">
+              {currentGps?.imei && (
+                <span className="font-mono text-[9.5px] text-gray-600 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                  IMEI: {currentGps.imei}
+                </span>
+              )}
+              {/* Giữ tag hành trình, bỏ hoàn toàn tab 'Không có dữ liệu' */}
+              <span className="text-[9px] font-bold text-blue-700 bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-200">
+                Có hành trình
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4">

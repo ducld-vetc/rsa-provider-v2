@@ -14,7 +14,6 @@ export interface InvoiceLineItem {
 export interface EInvoiceGenerateRequest {
   buyer: {
     name: string;
-    idNumber: string;
     company: string;
     taxCode: string;
     budgetCode: string;
@@ -140,7 +139,6 @@ const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
   onGenerateFile,
 }) => {
   const [buyerName, setBuyerName] = useState('');
-  const [buyerIdNumber, setBuyerIdNumber] = useState('');
   const [buyerCompany, setBuyerCompany] = useState('');
   const [buyerTaxCode, setBuyerTaxCode] = useState('');
   const [buyerBudgetCode, setBuyerBudgetCode] = useState('');
@@ -164,7 +162,6 @@ const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
     if (!isOpen) return;
     const isBusiness = customerType === 'Doanh nghiệp';
     setBuyerName(customerName || 'Trần Thị Thanh Phượng');
-    setBuyerIdNumber('079185012345');
     setBuyerCompany(isBusiness ? companyName || 'CÔNG TY TNHH ABC' : companyName || '');
     setBuyerTaxCode(isBusiness ? taxCode || '0123456789' : taxCode || '');
     setBuyerBudgetCode('');
@@ -239,7 +236,6 @@ const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
   const buildPayload = (): EInvoiceGenerateRequest => ({
     buyer: {
       name: buyerName,
-      idNumber: buyerIdNumber,
       company: buyerCompany,
       taxCode: buyerTaxCode,
       budgetCode: buyerBudgetCode,
@@ -411,19 +407,6 @@ const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
                         setBuyerName(e.target.value);
                       }}
                       className={fieldInput}
-                    />
-                  </label>
-                  <label className="block space-y-1 md:col-span-2 xl:col-span-2">
-                    <span className="text-[11px] font-semibold text-gray-500">CCCD</span>
-                    <input
-                      value={buyerIdNumber}
-                      onChange={(e) => {
-                        markDirty();
-                        setBuyerIdNumber(e.target.value);
-                      }}
-                      className={fieldInput}
-                      placeholder="Số căn cước công dân"
-                      inputMode="numeric"
                     />
                   </label>
                   <label className="block space-y-1 md:col-span-2 xl:col-span-2">

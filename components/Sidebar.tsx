@@ -1,342 +1,566 @@
-
-import React, { useState } from 'react';
-import { HelpCircle, ChevronDown, Users, ShieldCheck, Truck, Activity, PlusCircle, ClipboardList, PlayCircle, Building2, DollarSign, LayoutDashboard, Briefcase, Package, Wallet, FileText, MapPin, Calendar, CalendarDays, Waves, Settings2, SlidersHorizontal, Handshake, BarChart3, GitBranch, Car, Store, FileSpreadsheet, Wrench, UserRound } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Building2,
+  Calendar,
+  CalendarDays,
+  Car,
+  ChevronDown,
+  ClipboardList,
+  DollarSign,
+  GitBranch,
+  History,
+  LayoutDashboard,
+  LayoutGrid,
+  MapPin,
+  Package,
+  PlayCircle,
+  PlusCircle,
+  Radio,
+  Settings2,
+  ShieldCheck,
+  Smartphone,
+  Store,
+  Truck,
+  Users,
+  Wrench,
+} from 'lucide-react';
 import { Step } from '../types';
+import { getStoredPersona } from './PartnerScopeBar';
 
 interface SidebarProps {
   isOpen: boolean;
-  onNavigateRsaDashboard: () => void;
-  onNavigateRescueSupervision: () => void;
-  onNavigateSupporting: () => void;
-  onNavigateCreate: () => void;
-  onNavigateOrderManagement: () => void;
-  onNavigateGuestOrder: () => void;
-  onNavigateStationCreate: () => void;
-  onNavigateStationOrders: () => void;
-  onNavigateStationManagement: () => void;
-  onNavigateStationCoverage: () => void;
-  onNavigateStaffManagement: () => void;
-  onNavigatePricingPolicy: () => void;
-  onNavigateBusinessManagement: () => void;
-  onNavigatePackagePurchaseManagement: () => void;
-  onNavigateCustomerManagement: () => void;
-  onNavigatePackageImport: () => void;
-  onNavigatePaymentRequestManagement: () => void;
-  onNavigateLocationSearch: () => void;
-  onNavigateShiftDefinition: () => void;
-  onNavigateShiftMonthlySchedule: () => void;
-  onNavigateFloodZoneManagement: () => void;
-  onNavigateRescueFeeConfiguration: () => void;
-  onNavigateRescueFeeCriteria: () => void;
-  onNavigatePartner: (path: string) => void;
-  currentStep: Step;
+  onNavigateRsaDashboard?: () => void;
+  onNavigateRescueSupervision?: () => void;
+  onNavigateSupporting?: () => void;
+  onNavigateCreate?: () => void;
+  onNavigateOrderManagement?: () => void;
+  onNavigateGuestOrder?: () => void;
+  onNavigateStationCreate?: () => void;
+  onNavigateStationOrders?: () => void;
+  onNavigateStationManagement?: () => void;
+  onNavigateStationCoverage?: () => void;
+  onNavigateStaffManagement?: () => void;
+  onNavigatePricingPolicy?: () => void;
+  onNavigateBusinessManagement?: () => void;
+  onNavigatePackagePurchaseManagement?: () => void;
+  onNavigatePackageImport?: () => void;
+  onNavigatePaymentRequestManagement?: () => void;
+  onNavigateLocationSearch?: () => void;
+  onNavigateShiftDefinition?: () => void;
+  onNavigateShiftMonthlySchedule?: () => void;
+  onNavigateFloodZoneManagement?: () => void;
+  onNavigateRescueFeeConfiguration?: () => void;
+  onNavigateRescueFeeCriteria?: () => void;
+  onNavigatePartner?: (path: string) => void;
+  currentStep?: Step;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ 
-  isOpen, 
-  onNavigateRsaDashboard,
-  onNavigateRescueSupervision,
-  onNavigateSupporting, 
-  onNavigateCreate, 
-  onNavigateOrderManagement, 
-  onNavigateGuestOrder, 
-  onNavigateStationCreate,
-  onNavigateStationOrders,
-  onNavigateStationManagement,
-  onNavigateStationCoverage,
-  onNavigateStaffManagement,
-  onNavigatePricingPolicy,
-  onNavigateBusinessManagement,
-  onNavigatePackagePurchaseManagement,
-  onNavigateCustomerManagement,
-  onNavigatePackageImport,
-  onNavigatePaymentRequestManagement,
-  onNavigateLocationSearch,
-  onNavigateShiftDefinition,
-  onNavigateShiftMonthlySchedule,
-  onNavigateFloodZoneManagement,
-  onNavigateRescueFeeConfiguration,
-  onNavigateRescueFeeCriteria,
+export type { SidebarProps };
+
+const TOP_LEVEL_GROUPS = [
+  'monitoring',
+  'orders',
+  'fleet',
+  'workforce',
+  'reports',
+  'system',
+] as const;
+
+const GROUP_PATHS: Record<string, string[]> = {
+  monitoring: [
+    '/rsa-dashboard',
+    '/rescue-supervision',
+    '/supporting',
+    '/partner/resource-board',
+  ],
+  orders: [
+    '/station/create',
+    '/create',
+    '/app/quick-create',
+    '/partner/quick-order',
+    '/station/management',
+    '/station/coverage',
+  ],
+  fleetVehicles: [
+    '/partner/vehicles',
+    '/partner/tool-config',
+    '/partner/vehicle-tools',
+  ],
+  fleetMaintenance: [
+    '/partner/maintenance?tab=schedule',
+    '/partner/maintenance?tab=requests',
+    '/partner/maintenance?tab=orders',
+    '/partner/maintenance?tab=history',
+  ],
+  fleet: [
+    '/partner/vehicles',
+    '/partner/tool-config',
+    '/partner/vehicle-tools',
+    '/partner/maintenance',
+  ],
+  workforce: [
+    '/partner/staff',
+    '/partner/shift-config',
+    '/partner/shift-schedule',
+    '/shift-definition-management',
+    '/shift-monthly-schedule',
+  ],
+  reports: [
+    '/partner/reports',
+  ],
+  system: [
+    '/partner/org',
+    '/admin/rescue-providers',
+    '/admin/rescue-stations',
+    '/admin/rescue-packages',
+    '/admin/rescue-services',
+    '/rescue-fee-config',
+    '/rescue-fee-criteria',
+    '/staff-management',
+  ],
+};
+
+const Sidebar: React.FC<SidebarProps> = ({
+  isOpen,
   onNavigatePartner,
-  currentStep 
 }) => {
-  const [openMenus, setOpenMenus] = useState<string[]>([
-    'admin',
-    'hr',
-    'rescuePackage',
-    'payment',
-    'cskh',
-    'rescue',
-    'station',
-    'rescueFee',
-    'partner',
-    'partnerVehicle',
-    'partnerReport',
-    'partnerAdmin',
-  ]);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const persona = getStoredPersona();
+  const isAdmin = persona.role === 'BDH';
+
+  const isItemActive = (path: string): boolean => {
+    if (path.includes('?tab=')) {
+      const [basePath, query] = path.split('?');
+      const targetTab = new URLSearchParams(query).get('tab');
+      const currentTab = new URLSearchParams(location.search).get('tab') || 'schedule';
+      return location.pathname.startsWith(basePath) && currentTab === targetTab;
+    }
+    if (path === '/rsa-dashboard') return location.pathname === '/rsa-dashboard';
+    if (path === '/rescue-supervision') return location.pathname === '/rescue-supervision';
+    if (path === '/supporting') return location.pathname === '/supporting';
+    if (path === '/partner/resource-board') return location.pathname === '/partner/resource-board';
+    if (path === '/station/create') {
+      return (
+        location.pathname === '/station/create' ||
+        location.pathname === '/create' ||
+        location.pathname === '/payment' ||
+        location.pathname === '/searching' ||
+        location.pathname === '/rescue-list' ||
+        location.pathname === '/station-info' ||
+        location.pathname === '/confirmation'
+      );
+    }
+    if (path === '/app/quick-create') return location.pathname === '/app/quick-create' || location.pathname === '/partner/quick-order';
+    if (path === '/station/management') {
+      return (
+        location.pathname.startsWith('/station/management') ||
+        location.pathname.startsWith('/station/details') ||
+        location.pathname.startsWith('/station/orders') ||
+        location.pathname === '/orders'
+      );
+    }
+    if (path === '/station/coverage') return location.pathname.startsWith('/station/coverage');
+    if (path === '/partner/vehicles') return location.pathname.startsWith('/partner/vehicles');
+    if (path === '/partner/tool-config') {
+      return location.pathname.startsWith('/partner/tool-config') || location.pathname.startsWith('/partner/vehicle-tools');
+    }
+    if (path === '/partner/staff') return location.pathname.startsWith('/partner/staff');
+    if (path === '/partner/shift-config') {
+      return location.pathname.startsWith('/partner/shift-config') || location.pathname.startsWith('/shift-definition-management');
+    }
+    if (path === '/partner/shift-schedule') {
+      return location.pathname.startsWith('/partner/shift-schedule') || location.pathname.startsWith('/shift-monthly-schedule');
+    }
+    if (path === '/partner/reports') return location.pathname.startsWith('/partner/reports');
+    if (path === '/partner/org') return location.pathname.startsWith('/partner/org');
+    if (path === '/admin/rescue-providers') return location.pathname.startsWith('/admin/rescue-providers');
+    if (path === '/admin/rescue-stations') return location.pathname.startsWith('/admin/rescue-stations');
+    if (path === '/admin/rescue-packages') return location.pathname.startsWith('/admin/rescue-packages');
+    if (path === '/admin/rescue-services') return location.pathname.startsWith('/admin/rescue-services');
+    if (path === '/rescue-fee-config') {
+      return location.pathname.startsWith('/rescue-fee-config') || location.pathname.startsWith('/rescue-fee-criteria');
+    }
+    if (path === '/staff-management') return location.pathname.startsWith('/staff-management');
+
+    return location.pathname === path;
+  };
+
+  const findActiveGroupsForLocation = (): string[] | null => {
+    // Check fleet submenus first
+    if (GROUP_PATHS.fleetVehicles.some(p => isItemActive(p))) {
+      return ['fleet', 'fleetVehicles'];
+    }
+    if (
+      GROUP_PATHS.fleetMaintenance.some(p => isItemActive(p)) ||
+      location.pathname.startsWith('/partner/maintenance')
+    ) {
+      return ['fleet', 'fleetMaintenance'];
+    }
+    // Check other top-level groups
+    for (const groupId of TOP_LEVEL_GROUPS) {
+      if (groupId === 'fleet') continue;
+      if (GROUP_PATHS[groupId]?.some(p => isItemActive(p))) {
+        return [groupId];
+      }
+    }
+    return null;
+  };
+
+  const [openGroups, setOpenGroups] = useState<string[]>(() => {
+    const initial = findActiveGroupsForLocation();
+    return initial && initial.length > 0 ? initial : ['monitoring'];
+  });
+
+  const lastLocationRef = useRef(location.pathname + location.search);
+
+  // Sync open group on route changes so only the active menu is open
+  useEffect(() => {
+    const currentLoc = location.pathname + location.search;
+    if (lastLocationRef.current !== currentLoc) {
+      lastLocationRef.current = currentLoc;
+      const matched = findActiveGroupsForLocation();
+      if (matched && matched.length > 0) {
+        setOpenGroups(matched);
+      }
+    }
+  }, [location.pathname, location.search]);
 
   if (!isOpen) return null;
 
-  const toggleMenu = (menuId: string) => {
-    setOpenMenus(prev => 
-      prev.includes(menuId) 
-        ? prev.filter(id => id !== menuId) 
-        : [...prev, menuId]
+  const toggleGroup = (groupId: string) => {
+    // Submenus inside fleet (fleetVehicles, fleetMaintenance)
+    if (groupId === 'fleetVehicles' || groupId === 'fleetMaintenance') {
+      if (openGroups.includes(groupId)) {
+        setOpenGroups(['fleet']);
+      } else {
+        setOpenGroups(['fleet', groupId]);
+      }
+      return;
+    }
+
+    // Top-level groups: opening any group closes all other top-level groups
+    if (openGroups.includes(groupId)) {
+      setOpenGroups([]);
+    } else {
+      if (groupId === 'fleet') {
+        const activeSub =
+          GROUP_PATHS.fleetMaintenance.some(p => isItemActive(p)) ||
+          location.pathname.startsWith('/partner/maintenance')
+            ? 'fleetMaintenance'
+            : 'fleetVehicles';
+        setOpenGroups(['fleet', activeSub]);
+      } else {
+        setOpenGroups([groupId]);
+      }
+    }
+  };
+
+  const isGroupOpen = (groupId: string) => openGroups.includes(groupId);
+
+  const handleNav = (path: string) => {
+    // Determine which menu group this path belongs to and immediately open only that menu
+    if (
+      GROUP_PATHS.fleetVehicles.some(
+        p => path === p || path.startsWith('/partner/vehicles') || path.startsWith('/partner/tool-config')
+      )
+    ) {
+      setOpenGroups(['fleet', 'fleetVehicles']);
+    } else if (
+      GROUP_PATHS.fleetMaintenance.some(
+        p => path === p || path.startsWith('/partner/maintenance')
+      )
+    ) {
+      setOpenGroups(['fleet', 'fleetMaintenance']);
+    } else {
+      for (const groupId of TOP_LEVEL_GROUPS) {
+        if (groupId === 'fleet') continue;
+        if (GROUP_PATHS[groupId]?.some(p => path === p || path.startsWith(p.split('?')[0]))) {
+          setOpenGroups([groupId]);
+          break;
+        }
+      }
+    }
+
+    if (onNavigatePartner) {
+      onNavigatePartner(path);
+    } else {
+      navigate(path);
+    }
+  };
+
+  const renderNavItem = (
+    path: string,
+    label: string,
+    Icon: React.ElementType,
+    options?: {
+      badge?: string;
+      badgeColor?: string;
+      pulse?: boolean;
+      indent?: boolean;
+    }
+  ) => {
+    const active = isItemActive(path);
+    const indent = options?.indent !== false;
+
+    return (
+      <div
+        key={path}
+        onClick={() => handleNav(path)}
+        className={`group flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer text-[13px] transition-all duration-150 ${
+          indent ? 'ml-3' : ''
+        } ${
+          active
+            ? 'bg-emerald-50 text-emerald-800 font-semibold shadow-xs border-r-3 border-[#00A859]'
+            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 font-medium'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Icon
+            size={15}
+            className={`shrink-0 transition-colors ${
+              active ? 'text-[#00A859]' : 'text-gray-400 group-hover:text-gray-600'
+            }`}
+          />
+          <span className="truncate leading-tight">{label}</span>
+        </div>
+
+        {options?.badge && (
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 tracking-tight ${
+              options.badgeColor || 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {options.pulse && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            )}
+            {options.badge}
+          </span>
+        )}
+      </div>
     );
   };
 
-  const isMenuOpen = (menuId: string) => openMenus.includes(menuId);
+  const renderSectionHeader = (
+    id: string,
+    title: string,
+    Icon: React.ElementType,
+    paths: string[]
+  ) => {
+    const isOpen = isGroupOpen(id);
+    const hasActiveChild = paths.some(p => isItemActive(p));
 
-  const isHrActive =
-    currentStep === Step.STAFF_MANAGEMENT ||
-    currentStep === Step.SHIFT_DEFINITION_MANAGEMENT ||
-    currentStep === Step.SHIFT_MONTHLY_SCHEDULE;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleGroup(id)}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all duration-150 ${
+          hasActiveChild
+            ? 'text-gray-900 font-bold bg-emerald-50/70 shadow-xs'
+            : isOpen
+            ? 'text-gray-900 font-bold bg-gray-50'
+            : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900 font-semibold'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div
+            className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+              hasActiveChild
+                ? 'bg-emerald-100 text-[#00A859]'
+                : isOpen
+                ? 'bg-emerald-50 text-[#00A859]'
+                : 'bg-gray-100 text-gray-500'
+            }`}
+          >
+            <Icon size={14} />
+          </div>
+          <span className="text-[13px] tracking-tight">{title}</span>
+        </div>
+        <ChevronDown
+          size={14}
+          className={`transition-transform duration-200 shrink-0 ${
+            isOpen ? 'rotate-180 text-emerald-600' : 'text-gray-400'
+          }`}
+        />
+      </button>
+    );
+  };
 
-  const isRescuePackageActive =
-    currentStep === Step.PRICING_POLICY ||
-    currentStep === Step.PACKAGE_PURCHASE_MANAGEMENT ||
-    currentStep === Step.CUSTOMER_MANAGEMENT ||
-    currentStep === Step.PACKAGE_IMPORT ||
-    currentStep === Step.SERVICE_MANAGEMENT ||
-    currentStep === Step.PACKAGE_CATALOG;
+  const renderSubmenuHeader = (
+    id: string,
+    title: string,
+    Icon: React.ElementType,
+    paths: string[]
+  ) => {
+    const isOpen = isGroupOpen(id);
+    const hasActiveChild = paths.some(p => isItemActive(p));
 
-  const isRescueFeeActive =
-    currentStep === Step.RESCUE_FEE_CONFIGURATION ||
-    currentStep === Step.RESCUE_FEE_CRITERIA;
-
-  const isPartnerActive =
-    currentStep === Step.PARTNER_VEHICLES ||
-    currentStep === Step.PARTNER_TOOL_CONFIG ||
-    currentStep === Step.PARTNER_STAFF ||
-    currentStep === Step.PARTNER_REPORTS ||
-    currentStep === Step.PARTNER_ORG;
-
-  const isPartnerVehicleActive =
-    currentStep === Step.PARTNER_VEHICLES || currentStep === Step.PARTNER_TOOL_CONFIG;
-
-  const isPartnerAdminActive =
-    currentStep === Step.RESCUE_PROVIDER_MANAGEMENT || currentStep === Step.RESCUE_STATION_ADMIN;
-
-  const navPartnerItem = (step: Step, path: string, label: string, Icon: typeof Car) => (
-    <div
-      onClick={() => onNavigatePartner(path)}
-      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === step ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-    >
-      <Icon size={13} className="shrink-0" />
-      <span className="whitespace-nowrap">{label}</span>
-    </div>
-  );
+    return (
+      <div
+        onClick={() => toggleGroup(id)}
+        className={`flex items-center justify-between px-3 py-1.5 ml-3 rounded-lg cursor-pointer text-[13px] transition-all duration-150 ${
+          hasActiveChild
+            ? 'text-emerald-800 font-semibold bg-emerald-50/70'
+            : isOpen
+            ? 'text-gray-900 font-semibold bg-gray-100/60'
+            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70 font-medium'
+        }`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon
+            size={14}
+            className={`shrink-0 transition-colors ${
+              hasActiveChild ? 'text-[#00A859]' : isOpen ? 'text-[#00A859]' : 'text-gray-400'
+            }`}
+          />
+          <span className="truncate">{title}</span>
+        </div>
+        <ChevronDown
+          size={12}
+          className={`transition-transform duration-200 shrink-0 ${
+            isOpen ? 'rotate-180 text-emerald-600' : 'text-gray-400'
+          }`}
+        />
+      </div>
+    );
+  };
 
   return (
-    <aside className="w-72 shrink-0 bg-white border-r flex flex-col transition-all duration-300">
-      <div className="p-4 border-b flex items-center justify-center">
-        <div className="w-8 h-8 bg-[#00A859] rounded flex items-center justify-center text-white font-black italic shadow-inner">V</div>
-        <span className="font-black text-gray-800 tracking-tighter text-xl ml-2">VETC</span>
+    <aside className="w-72 shrink-0 bg-white border-r flex flex-col h-screen select-none transition-all duration-300 shadow-sm z-30">
+      {/* Brand Header */}
+      <div className="h-14 px-4 border-b flex items-center justify-between shrink-0 bg-white">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-[#00A859] rounded-lg flex items-center justify-center text-white font-black italic shadow-sm">
+            V
+          </div>
+          <div className="flex flex-col">
+            <span className="font-black text-gray-900 tracking-tight text-base leading-none">
+              VETC FLEET
+            </span>
+            <span className="text-[10px] text-gray-400 font-semibold tracking-wider uppercase mt-0.5">
+              Cứu hộ giao thông
+            </span>
+          </div>
+        </div>
+        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full">
+          Portal
+        </span>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4">
-        {/* Quản trị hệ thống */}
-        <div className="px-4 mb-2">
-          <div 
-            onClick={() => toggleMenu('admin')}
-            className="flex items-center justify-between text-gray-700 hover:bg-gray-100 p-2 rounded cursor-pointer transition-colors"
-          >
-            <div className="flex items-center space-x-2">
-              <ShieldCheck size={18} className="text-gray-500" />
-              <span className="text-sm font-medium">Quản trị hệ thống</span>
+
+      {/* Navigation Groups */}
+      <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 py-3 space-y-2.5">
+        {/* NHÓM 1: GIÁM SÁT & ĐIỀU PHỐI */}
+        <div className="space-y-0.5">
+          {renderSectionHeader('monitoring', 'Giám sát & Điều phối', Activity, [
+            '/rsa-dashboard',
+            '/rescue-supervision',
+            '/supporting',
+            '/partner/resource-board',
+          ])}
+          {isGroupOpen('monitoring') && (
+            <div className="space-y-0.5 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
+              {renderNavItem('/rsa-dashboard', 'Tổng quan vận hành', LayoutDashboard)}
+              {renderNavItem('/rescue-supervision', 'Giám sát trực tiếp', Radio, {
+                badge: 'LIVE',
+                badgeColor: 'bg-emerald-100 text-emerald-800 font-black',
+                pulse: true,
+              })}
+              {renderNavItem('/supporting', 'Đơn đang cứu hộ', PlayCircle)}
+              {renderNavItem('/partner/resource-board', 'Bảng nguồn lực xe & tài xế', LayoutGrid, {
+                badge: 'FL-M1-11',
+                badgeColor: 'bg-blue-50 text-blue-700 font-semibold',
+              })}
             </div>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isMenuOpen('admin') ? 'rotate-180' : ''}`} />
-          </div>
-          {isMenuOpen('admin') && (
-            <div className="mt-2 space-y-0.5 pl-2">
-              {/* Nhân sự */}
+          )}
+        </div>
+
+        {/* NHÓM 2: QUẢN LÝ ĐƠN CỨU HỘ */}
+        <div className="space-y-0.5">
+          {renderSectionHeader('orders', 'Quản lý đơn cứu hộ', ClipboardList, [
+            '/station/create',
+            '/app/quick-create',
+            '/station/management',
+            '/station/coverage',
+          ])}
+          {isGroupOpen('orders') && (
+            <div className="space-y-0.5 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
+              {renderNavItem('/station/create', 'Tạo đơn cứu hộ', PlusCircle)}
+              {renderNavItem('/app/quick-create', 'Tạo nhanh App', Smartphone, {
+                badge: 'FL-M3-04',
+                badgeColor: 'bg-amber-50 text-amber-700 font-semibold',
+              })}
+              {renderNavItem('/station/management', 'Danh sách đơn cứu hộ', ClipboardList)}
+              {renderNavItem('/station/coverage', 'Bản đồ độ phủ trạm', MapPin)}
+            </div>
+          )}
+        </div>
+
+        {/* NHÓM 3: QUẢN LÝ ĐỘI XE */}
+        <div className="space-y-0.5">
+          {renderSectionHeader('fleet', 'Quản lý đội xe', Car, [
+            '/partner/vehicles',
+            '/partner/tool-config',
+            '/partner/maintenance?tab=schedule',
+            '/partner/maintenance?tab=requests',
+            '/partner/maintenance?tab=orders',
+            '/partner/maintenance?tab=history',
+          ])}
+          {isGroupOpen('fleet') && (
+            <div className="space-y-1 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
+              {/* Submenu: Hồ sơ phương tiện */}
               <div>
-                <div
-                  onClick={() => toggleMenu('hr')}
-                  className={`flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer transition-colors ${
-                    isHrActive ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Users size={14} className="shrink-0" />
-                    <span className="truncate">Nhân sự</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform duration-200 ${isMenuOpen('hr') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('hr') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    <div
-                      onClick={onNavigateStaffManagement}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.STAFF_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <Users size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Quản lý nhân viên</span>
-                    </div>
-                    <div
-                      onClick={onNavigateShiftDefinition}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.SHIFT_DEFINITION_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <Calendar size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Cấu hình ca làm việc</span>
-                    </div>
-                    <div
-                      onClick={onNavigateShiftMonthlySchedule}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.SHIFT_MONTHLY_SCHEDULE ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <CalendarDays size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Lịch ca theo tháng</span>
-                    </div>
+                {renderSubmenuHeader('fleetVehicles', 'Hồ sơ phương tiện', Car, [
+                  '/partner/vehicles',
+                  '/partner/tool-config',
+                ])}
+                {isGroupOpen('fleetVehicles') && (
+                  <div className="space-y-0.5 mt-0.5 ml-4 pl-2 border-l border-gray-200">
+                    {renderNavItem('/partner/vehicles', 'Danh sách phương tiện', Car, { indent: false })}
+                    {renderNavItem('/partner/tool-config', 'Cấu hình công cụ xe', Settings2, {
+                      indent: false,
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Gói cứu hộ */}
+              {/* Submenu: Quản lý bảo dưỡng */}
               <div>
-                <div
-                  onClick={() => toggleMenu('rescuePackage')}
-                  className={`flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer transition-colors ${
-                    isRescuePackageActive ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Package size={14} className="shrink-0" />
-                    <span className="truncate">Gói cứu hộ</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform duration-200 ${isMenuOpen('rescuePackage') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('rescuePackage') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    <div
-                      onClick={onNavigatePricingPolicy}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.PRICING_POLICY ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <DollarSign size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Chính sách giá</span>
-                    </div>
-                    <div
-                      onClick={onNavigatePackagePurchaseManagement}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.PACKAGE_PURCHASE_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <Package size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Quản lý mua gói</span>
-                    </div>
-                    <div
-                      onClick={onNavigateCustomerManagement}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.CUSTOMER_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <UserRound size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Quản lý khách hàng</span>
-                    </div>
-                    <div
-                      onClick={onNavigatePackageImport}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.PACKAGE_IMPORT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <FileSpreadsheet size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Import gói cứu hộ</span>
-                    </div>
-                    <div
-                      onClick={() => onNavigatePartner('/admin/rescue-packages')}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.PACKAGE_CATALOG ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <Settings2 size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Cấu hình gói cứu hộ</span>
-                    </div>
-                    <div
-                      onClick={() => onNavigatePartner('/admin/rescue-services')}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.SERVICE_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <Wrench size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Dịch vụ cứu hộ</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div 
-                onClick={onNavigateBusinessManagement}
-                className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded cursor-pointer ${currentStep === Step.BUSINESS_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <Briefcase size={14} className="shrink-0" />
-                <span className="whitespace-nowrap">Quản lý doanh nghiệp</span>
-              </div>
-              <div>
-                <div
-                  onClick={() => toggleMenu('partnerAdmin')}
-                  className={`flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer transition-colors ${
-                    isPartnerAdminActive ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Handshake size={14} className="shrink-0" />
-                    <span className="truncate">Quản lý đối tác cứu hộ</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform duration-200 ${isMenuOpen('partnerAdmin') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('partnerAdmin') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    {navPartnerItem(Step.RESCUE_PROVIDER_MANAGEMENT, '/admin/rescue-providers', 'Đối tác cứu hộ', Store)}
-                    {navPartnerItem(Step.RESCUE_STATION_ADMIN, '/admin/rescue-stations', 'Trạm cứu hộ', Building2)}
-                  </div>
-                )}
-              </div>
-              <div 
-                onClick={onNavigateFloodZoneManagement}
-                className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded cursor-pointer ${currentStep === Step.FLOOD_ZONE_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <Waves size={14} className="shrink-0" />
-                <span className="whitespace-nowrap">Khu vực ngập lụt</span>
-              </div>
-              <div>
-                <div
-                  onClick={() => toggleMenu('rescueFee')}
-                  className={`flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer transition-colors ${
-                    isRescueFeeActive ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <DollarSign size={14} className="shrink-0" />
-                    <span className="truncate">Phí cứu hộ</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform duration-200 ${isMenuOpen('rescueFee') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('rescueFee') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    <div
-                      onClick={onNavigateRescueFeeConfiguration}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.RESCUE_FEE_CONFIGURATION ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <Settings2 size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Cấu hình phí</span>
-                    </div>
-                    <div
-                      onClick={onNavigateRescueFeeCriteria}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.RESCUE_FEE_CRITERIA ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <SlidersHorizontal size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Danh mục tiêu chí</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div>
-                <div
-                  onClick={() => toggleMenu('payment')}
-                  className="flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer text-gray-600 hover:bg-gray-100 transition-colors"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Wallet size={14} className="shrink-0" />
-                    <span className="truncate">Quản lý thanh toán</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform duration-200 ${isMenuOpen('payment') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('payment') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    <div
-                      onClick={onNavigatePaymentRequestManagement}
-                      className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded cursor-pointer leading-snug ${currentStep === Step.PAYMENT_REQUEST_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      <FileText size={13} className="shrink-0" />
-                      <span className="whitespace-nowrap">Đề nghị thanh toán</span>
-                    </div>
+                {renderSubmenuHeader('fleetMaintenance', 'Bảo dưỡng & Sửa chữa', Wrench, [
+                  '/partner/maintenance?tab=schedule',
+                  '/partner/maintenance?tab=requests',
+                  '/partner/maintenance?tab=orders',
+                  '/partner/maintenance?tab=history',
+                ])}
+                {isGroupOpen('fleetMaintenance') && (
+                  <div className="space-y-0.5 mt-0.5 ml-4 pl-2 border-l border-gray-200">
+                    {renderNavItem(
+                      '/partner/maintenance?tab=schedule',
+                      'Lịch bảo dưỡng',
+                      Calendar,
+                      { indent: false }
+                    )}
+                    {renderNavItem(
+                      '/partner/maintenance?tab=requests',
+                      'Yêu cầu sửa chữa',
+                      AlertTriangle,
+                      { indent: false }
+                    )}
+                    {renderNavItem(
+                      '/partner/maintenance?tab=orders',
+                      'Lệnh sửa chữa / bảo dưỡng',
+                      ClipboardList,
+                      { indent: false }
+                    )}
+                    {renderNavItem(
+                      '/partner/maintenance?tab=history',
+                      'Lịch sử bảo dưỡng',
+                      History,
+                      { indent: false }
+                    )}
                   </div>
                 )}
               </div>
@@ -344,191 +568,72 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Chăm sóc khách hàng */}
-        <div className="px-4 mb-2">
-          <div 
-            onClick={() => toggleMenu('cskh')}
-            className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all ${isMenuOpen('cskh') ? 'bg-vetc-green text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <div className="flex items-center space-x-2">
-              <HelpCircle size={18} />
-              <span className="text-sm font-medium">Chăm sóc khách hàng</span>
-            </div>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isMenuOpen('cskh') ? 'rotate-180' : ''}`} />
-          </div>
-          {isMenuOpen('cskh') && (
-            <div className="ml-8 mt-2 space-y-1">
-              <div 
-                onClick={onNavigateCreate}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.CUSTOMER_INFO ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <PlusCircle size={14} />
-                <span>Tạo đơn cứu hộ</span>
-              </div>
-              <div 
-                onClick={onNavigateOrderManagement}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.ORDER_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <ClipboardList size={14} />
-                <span>Quản lý đơn hàng</span>
-              </div>
-              <div 
-                onClick={onNavigateLocationSearch}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.LOCATION_SEARCH ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <MapPin size={14} />
-                <span>Tìm kiếm vị trí</span>
-              </div>
+        {/* NHÓM 4: NHÂN SỰ & CA TRỰC */}
+        <div className="space-y-0.5">
+          {renderSectionHeader(
+            'workforce',
+            'Nhân sự & Ca trực',
+            Users,
+            isAdmin
+              ? ['/partner/staff', '/partner/shift-config', '/partner/shift-schedule']
+              : ['/partner/staff', '/partner/shift-schedule']
+          )}
+          {isGroupOpen('workforce') && (
+            <div className="space-y-0.5 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
+              {renderNavItem('/partner/staff', 'Danh sách nhân viên', Users)}
+              {isAdmin && renderNavItem('/partner/shift-config', 'Cấu hình ca làm việc', Calendar)}
+              {renderNavItem('/partner/shift-schedule', 'Lịch ca', CalendarDays)}
             </div>
           )}
         </div>
 
-        {/* Giám sát cứu hộ */}
-        <div className="px-4 mb-2">
-          <div 
-            onClick={() => toggleMenu('rescue')}
-            className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all ${isMenuOpen('rescue') && !isMenuOpen('cskh') ? 'bg-vetc-green text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <div className="flex items-center space-x-2">
-              <Truck size={18} />
-              <span className="text-sm font-medium">Giám sát cứu hộ</span>
-            </div>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isMenuOpen('rescue') ? 'rotate-180' : ''}`} />
-          </div>
-          {isMenuOpen('rescue') && (
-            <div className="ml-8 mt-2 space-y-1">
-              <div
-                onClick={onNavigateRsaDashboard}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.RSA_DASHBOARD ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <LayoutDashboard size={14} />
-                <span>Tổng quan</span>
-              </div>
-              <div
-                onClick={onNavigateSupporting}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.SUPPORTING ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <PlayCircle size={14} />
-                <span>Đang hỗ trợ</span>
-              </div>
-              <div 
-                onClick={onNavigateRescueSupervision}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.RESCUE_SUPERVISION ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <Activity size={14} />
-                <span>Giám sát</span>
-              </div>
+        {/* NHÓM 5: BÁO CÁO & THỐNG KÊ */}
+        <div className="space-y-0.5">
+          {renderSectionHeader('reports', 'Báo cáo & Thống kê', BarChart3, ['/partner/reports'])}
+          {isGroupOpen('reports') && (
+            <div className="space-y-0.5 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
+              {renderNavItem('/partner/reports', 'Báo cáo vận hành', BarChart3)}
             </div>
           )}
         </div>
 
-        {/* Trạm cứu hộ */}
-        <div className="px-4 mb-2">
-          <div 
-            onClick={() => toggleMenu('station')}
-            className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all ${isMenuOpen('station') && !isMenuOpen('cskh') && !isMenuOpen('rescue') ? 'bg-vetc-green text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <div className="flex items-center space-x-2">
-              <Building2 size={18} />
-              <span className="text-sm font-medium">Trạm cứu hộ</span>
-            </div>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isMenuOpen('station') ? 'rotate-180' : ''}`} />
-          </div>
-          {isMenuOpen('station') && (
-            <div className="ml-8 mt-2 space-y-1">
-              <div 
-                onClick={onNavigateStationCreate}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.STATION_CREATE ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <PlusCircle size={14} />
-                <span>Tạo đơn cứu hộ</span>
-              </div>
-              <div 
-                onClick={onNavigateStationManagement}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.STATION_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <ClipboardList size={14} />
-                <span>Quản lý đơn cứu hộ</span>
-              </div>
-              <div
-                onClick={onNavigateStationCoverage}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.STATION_COVERAGE ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <MapPin size={14} />
-                <span>Độ phủ theo tỉnh</span>
-              </div>
-              <div 
-                onClick={onNavigateStaffManagement}
-                className={`flex items-center space-x-2 text-sm p-2 rounded cursor-pointer ${currentStep === Step.STAFF_MANAGEMENT ? 'font-semibold text-blue-600 bg-blue-50 border-r-4 border-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <Users size={14} />
-                <span>Quản lý nhân viên</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Đối tác cứu hộ */}
-        <div className="px-4 mb-2">
-          <div
-            onClick={() => toggleMenu('partner')}
-            className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all ${isMenuOpen('partner') && isPartnerActive ? 'bg-vetc-green text-white shadow-md' : isPartnerActive ? 'bg-emerald-50 text-[#00A859]' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <div className="flex items-center space-x-2">
-              <Handshake size={18} />
-              <span className="text-sm font-medium">Đối tác cứu hộ</span>
-            </div>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isMenuOpen('partner') ? 'rotate-180' : ''}`} />
-          </div>
-          {isMenuOpen('partner') && (
-            <div className="mt-2 space-y-0.5 pl-2">
-              <div>
-                <div
-                  onClick={() => toggleMenu('partnerVehicle')}
-                  className={`flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer ${
-                    isPartnerVehicleActive ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Car size={14} className="shrink-0" />
-                    <span className="truncate">Hồ sơ xe cứu hộ</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform ${isMenuOpen('partnerVehicle') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('partnerVehicle') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    {navPartnerItem(Step.PARTNER_VEHICLES, '/partner/vehicles', 'Danh sách phương tiện', Car)}
-                    {navPartnerItem(Step.PARTNER_TOOL_CONFIG, '/partner/tool-config', 'Cấu hình công cụ', Settings2)}
-                  </div>
-                )}
-              </div>
-              {navPartnerItem(Step.PARTNER_STAFF, '/partner/staff', 'Quản lý nhân viên', Users)}
-              <div>
-                <div
-                  onClick={() => toggleMenu('partnerReport')}
-                  className={`flex items-center justify-between gap-1 text-sm px-2 py-1.5 rounded cursor-pointer ${
-                    currentStep === Step.PARTNER_REPORTS ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <BarChart3 size={14} className="shrink-0" />
-                    <span className="truncate">Báo cáo</span>
-                  </div>
-                  <ChevronDown size={12} className={`shrink-0 transition-transform ${isMenuOpen('partnerReport') ? 'rotate-180' : ''}`} />
-                </div>
-                {isMenuOpen('partnerReport') && (
-                  <div className="mt-0.5 ml-3 border-l border-gray-200 pl-2 space-y-0.5">
-                    {navPartnerItem(Step.PARTNER_REPORTS, '/partner/reports', 'Tất cả báo cáo', BarChart3)}
-                  </div>
-                )}
-              </div>
-              {navPartnerItem(Step.PARTNER_ORG, '/partner/org', 'Cấu hình tổ chức', GitBranch)}
+        {/* NHÓM 6: CẤU HÌNH & QUẢN TRỊ */}
+        <div className="space-y-0.5">
+          {renderSectionHeader('system', 'Cấu hình & Quản trị', Settings2, [
+            '/partner/org',
+            '/admin/rescue-providers',
+            '/admin/rescue-stations',
+            '/admin/rescue-packages',
+            '/admin/rescue-services',
+            '/rescue-fee-config',
+            '/staff-management',
+          ])}
+          {isGroupOpen('system') && (
+            <div className="space-y-0.5 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
+              {renderNavItem('/partner/org', 'Cơ cấu tổ chức & Trạm', GitBranch)}
+              {renderNavItem('/admin/rescue-providers', 'Quản lý đối tác cứu hộ', Store)}
+              {renderNavItem('/admin/rescue-stations', 'Quản lý trạm cứu hộ', Building2)}
+              {renderNavItem('/admin/rescue-packages', 'Cấu hình gói cứu hộ', Package)}
+              {renderNavItem('/admin/rescue-services', 'Danh mục dịch vụ', Wrench)}
+              {renderNavItem('/rescue-fee-config', 'Cấu hình phí cứu hộ', DollarSign)}
+              {renderNavItem('/staff-management', 'Tài khoản & Phân quyền', ShieldCheck)}
             </div>
           )}
         </div>
       </nav>
-      <div className="p-4 border-t text-[10px] text-gray-400 font-medium uppercase tracking-widest">
-        Phiên bản 2.4.0 • 02/02/2026
+
+      {/* Footer System Info */}
+      <div className="p-3 border-t bg-gray-50/70 text-gray-500 shrink-0">
+        <div className="flex items-center justify-between text-[11px] font-semibold text-gray-600">
+          <span>Hệ thống RSA Fleet</span>
+          <span className="text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[10px]">
+            v2.5.0
+          </span>
+        </div>
+        <div className="text-[10px] text-gray-400 mt-1 flex items-center justify-between">
+          <span>VETC • Carpla</span>
+          <span>Tháng 10/2026</span>
+        </div>
       </div>
     </aside>
   );

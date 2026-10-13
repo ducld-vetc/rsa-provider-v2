@@ -9,7 +9,9 @@ import {
   History,
   Loader2,
   MapPin,
+  MessageSquare,
   Search,
+  Sparkles,
   Truck,
   User,
   UserCheck,
@@ -32,12 +34,7 @@ import { FloodWarningBadge } from '../shared/OrderAlertBadges';
 import { isPriorityCustomerPhone, normalizePhone } from '../shared/priorityCustomer';
 import {analyzeIncident} from '../data/aiDataMock';
 import VehicleInfoLookupModal from '../shared/VehicleInfoLookupModal';
-import {
-  MOCK_VEHICLE_REGISTRY,
-  normalizeVehicleQuery,
-  VehicleRescuePackage,
-  VehicleSearchResult,
-} from '../shared/VehiclePlateSearchModal';
+import { VehicleRescuePackage, VehicleSearchResult } from '../shared/VehiclePlateSearchModal';
 import WorkshopSelect from '../shared/WorkshopSelect';
 
 interface CreateRescueOrderProps {
@@ -52,36 +49,10 @@ interface CreateRescueOrderProps {
 
 const MOCK_HISTORY_DATA: OrderHistory[] = DEFAULT_PACKAGE_ORDERS;
 
-const fieldGridClass = 'grid gap-x-4 gap-y-3';
-const fieldGridStyle: React.CSSProperties = {
-  gridTemplateColumns: 'repeat(auto-fit, minmax(max(200px, calc((100% - 3rem) / 4)), 1fr))',
-};
-
-const Field = ({
-  label,
-  required = false,
-  trailing,
-  spreadTrailing = false,
-  children,
-  className = '',
-}: {
-  label: React.ReactNode;
-  required?: boolean;
-  trailing?: React.ReactNode;
-  spreadTrailing?: boolean;
-  children: React.ReactNode;
-  className?: string;
-}) => (
-  <div className={`min-w-0 flex flex-col gap-1 ${className}`}>
-    <div className={`flex items-center gap-1.5 flex-wrap min-w-0 ${spreadTrailing ? 'justify-between' : ''}`}>
-      <label className="text-[10px] font-bold text-gray-500 uppercase">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
-      {trailing}
-    </div>
-    {children}
-  </div>
+const Label = ({ children, required = false }: { children?: React.ReactNode, required?: boolean }) => (
+    <label className="text-[11px] font-bold text-gray-600 uppercase mb-1 flex items-center">
+      {children} {required && <span className="text-red-500 ml-0.5">*</span>}
+    </label>
 );
 
 const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onUpdateCustomer, onUpdateAssistance, onUpdateService, onUpdatePricing, role = 'CSKH' }) => {
@@ -119,26 +90,6 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
     setVehicleLookupMode(mode);
     setVehicleLookupQuery(q);
     setIsVehicleLookupOpen(true);
-  };
-
-  const usablePackageName = (plate: string, phone?: string) => {
-    const plateKey = normalizeVehicleQuery(plate);
-    const phoneKey = (phone ?? '').replace(/\D/g, '');
-    const vehicle = MOCK_VEHICLE_REGISTRY.find((item) => {
-      if (plateKey && normalizeVehicleQuery(item.plate) === plateKey) return true;
-      if (phoneKey && item.owner.phone.replace(/\D/g, '') === phoneKey) return true;
-      return false;
-    });
-    const packages = vehicle?.rescuePackages ?? [];
-    const newestTrip = packages
-      .filter((pkg) => (pkg.packageType ?? 'ALWAYS') === 'TRIP' && pkg.status === 'active')
-      .slice()
-      .sort((a, b) => (b.activatedAt ?? '').localeCompare(a.activatedAt ?? ''))[0];
-    if (newestTrip) return newestTrip.name;
-    const activeAlways = packages.find(
-      (pkg) => (pkg.packageType ?? 'ALWAYS') === 'ALWAYS' && pkg.status === 'active'
-    );
-    return activeAlways?.name ?? 'Không có';
   };
 
   const handleApplyVehicleInfo = (
@@ -190,44 +141,14 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
   ];
   const [selectedEnterprise, setSelectedEnterprise] = useState('');
   const [hasGuarantee, setHasGuarantee] = useState<'yes' | 'no'>('no');
-  const [guaranteeType, setGuaranteeType] = useState<'rate' | 'fixed'>('rate');
-  const [guaranteeValue, setGuaranteeValue] = useState('');
   const [guaranteeNote, setGuaranteeNote] = useState('');
-
-  const resetGuarantee = () => {
-    setHasGuarantee('no');
-    setGuaranteeType('rate');
-    setGuaranteeValue('');
-    setGuaranteeNote('');
-  };
 
   const handleEnterpriseChange = (value: string) => {
     setSelectedEnterprise(value);
-    if (!value) resetGuarantee();
-  };
-
-  const handleGuaranteeChange = (value: 'yes' | 'no') => {
-    setHasGuarantee(value);
-    if (value === 'no') {
-      setGuaranteeType('rate');
-      setGuaranteeValue('');
+    if (!value) {
+      setHasGuarantee('no');
+      setGuaranteeNote('');
     }
-  };
-
-  const handleGuaranteeTypeChange = (value: 'rate' | 'fixed') => {
-    setGuaranteeType(value);
-    setGuaranteeValue('');
-  };
-
-  const handleGuaranteeValueChange = (raw: string) => {
-    if (guaranteeType === 'rate') {
-      const digits = raw.replace(/\D/g, '').slice(0, 3);
-      const num = digits === '' ? '' : String(Math.min(100, parseInt(digits, 10)));
-      setGuaranteeValue(num);
-      return;
-    }
-    const digits = raw.replace(/\D/g, '');
-    setGuaranteeValue(digits ? Number(digits).toLocaleString('en-US') : '');
   };
 
   // AI Analysis logic
@@ -280,7 +201,7 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
         onUpdateCustomer({
           name: customerName,
           phone: rawValue,
-          servicePackage: usablePackageName(type === 'plate' ? rawValue : '29E366666', rawValue),
+          servicePackage: 'Gói cơ bản 10 dịch vụ',
           plate: type === 'plate' ? rawValue : '29E366666',
           vin: 'R7C2X9M4A8',
           vehicleBrand: 'TOYOTA',
@@ -300,10 +221,7 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
         onUpdateCustomer({
           name: 'TRAN DINH LAN ANH',
           phone: type === 'phone' ? rawValue : '0960123123',
-          servicePackage: usablePackageName(
-            type === 'plate' ? rawValue : '38A58531',
-            type === 'phone' ? rawValue : '0960123123'
-          ),
+          servicePackage: 'Gói cơ bản 10 dịch vụ',
           plate: type === 'plate' ? rawValue : '38A58531',
           vin: 'R7C2X9M4A8',
           vehicleBrand: 'TOYOTA',
@@ -384,7 +302,6 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
     // Location type state
   const [locationType, setLocationType] = useState('Đô thị');
   const [severityLevel, setSeverityLevel] = useState('Nhẹ');
-  const [weather, setWeather] = useState('Bình thường');
 
   const isRequestPhonePriority = isPriorityCustomerPhone(phoneContact);
   const isContactPhonePriority = isPriorityCustomerPhone(data.customer.phone);
@@ -406,21 +323,27 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
                 trailing={showPriorityCustomer ? <PriorityCustomerBadge /> : undefined}
               />
               <div className="p-4 space-y-4">
-                <div className={fieldGridClass} style={fieldGridStyle}>
-                  <Field label="Người yêu cầu" required>
-                    <input
-                      value={customerContact}
-                      onChange={(e) => setCustomerContact(e.target.value)}
+                {/* Name and phone */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-x-12 gap-y-4">
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Người yêu cầu <span className="text-red-500">*</span></label>
+                    <input 
+                      value={customerContact} 
+                      onChange={(e) => setCustomerContact(e.target.value)} 
                       onBlur={() => {
                         if (!data.customer.name) {
                           onUpdateCustomer({ name: customerContact });
                         }
                       }}
-                      className="w-full border rounded px-3 py-1.5 text-xs"
+                      className="flex-1 border rounded px-3 py-1.5 text-xs"
                     />
-                  </Field>
-                  <Field label="SĐT yêu cầu" required trailing={isRequestPhonePriority ? <PriorityCustomerBadge compact /> : undefined}>
-                    <div className="relative min-w-0">
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1.5 flex-wrap">
+                      SĐT yêu cầu <span className="text-red-500">*</span>
+                      {isRequestPhonePriority && <PriorityCustomerBadge compact />}
+                    </label>
+                    <div className="relative flex-1">
                       <input
                         value={phoneContact}
                         onChange={(e) => setPhoneContact(e.target.value)}
@@ -440,12 +363,17 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
                         <Search size={14} />
                       </button>
                     </div>
-                  </Field>
-                  <Field label="Người liên hệ" required>
-                    <input value={data.customer.name} onChange={(e) => onUpdateCustomer({ name: e.target.value })} className="w-full border rounded px-3 py-1.5 text-xs" />
-                  </Field>
-                  <Field label="SĐT liên hệ" required trailing={isContactPhonePriority ? <PriorityCustomerBadge compact /> : undefined}>
-                    <div className="relative min-w-0">
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Người liên hệ <span className="text-red-500">*</span></label>
+                    <input value={data.customer.name} onChange={(e) => onUpdateCustomer({ name: e.target.value })} className="flex-1 border rounded px-3 py-1.5 text-xs" />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1.5 flex-wrap">
+                      SĐT liên hệ <span className="text-red-500">*</span>
+                      {isContactPhonePriority && <PriorityCustomerBadge compact />}
+                    </label>
+                    <div className="relative flex-1">
                       <input
                         value={data.customer.phone}
                         onChange={(e) => onUpdateCustomer({ phone: e.target.value })}
@@ -460,7 +388,7 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
                         <Search size={14} />
                       </button>
                     </div>
-                  </Field>
+                  </div>
                 </div>
 
                 {priorityPhoneFromSearch && (
@@ -471,9 +399,50 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
                     </p>
                   </div>
                 )}
-                <div className={`${fieldGridClass} pt-4 border-t border-gray-100`} style={fieldGridStyle}>
-                  <Field label="Biển số xe" required>
-                    <div className="flex items-center gap-1.5 min-w-0">
+                {/* Doanh nghiệp & bảo lãnh */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-x-12 gap-y-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Doanh nghiệp</label>
+                    <select
+                      value={selectedEnterprise}
+                      onChange={(e) => handleEnterpriseChange(e.target.value)}
+                      className="flex-1 border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
+                    >
+                      {ENTERPRISE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedEnterprise && (
+                    <>
+                      <div className="flex items-center">
+                        <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Bảo lãnh</label>
+                        <select
+                          value={hasGuarantee}
+                          onChange={(e) => setHasGuarantee(e.target.value as 'yes' | 'no')}
+                          className="flex-1 border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
+                        >
+                          <option value="no">Không</option>
+                          <option value="yes">Có</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center md:col-span-2">
+                        <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Ghi chú bảo lãnh</label>
+                        <input
+                          value={guaranteeNote}
+                          onChange={(e) => setGuaranteeNote(e.target.value)}
+                          placeholder="Nhập nội dung chi tiết bảo lãnh..."
+                          className="flex-1 border rounded px-3 py-1.5 text-xs"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+                {/* Thông tin xe — dòng riêng */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-x-12 gap-y-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Biển số xe <span className="text-red-500">*</span></label>
+                    <div className="flex-1 flex items-center gap-1.5 min-w-0">
                       <div className="relative flex-1 min-w-0">
                         <input
                           value={searchPlate}
@@ -499,9 +468,10 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
                         Tra cứu
                       </button>
                     </div>
-                  </Field>
-                  <Field label="Số khung (VIN)">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Số khung (VIN)</label>
+                    <div className="flex-1 flex items-center gap-1.5 min-w-0">
                       <div className="relative flex-1 min-w-0">
                         <input
                           value={data.customer.vin}
@@ -520,337 +490,307 @@ const CreateRescueOrder: React.FC<CreateRescueOrderProps> = ({ data, onNext, onU
                         Tra cứu
                       </button>
                     </div>
-                  </Field>
-                  <Field label="Hãng xe">
-                    <div className="relative min-w-0">
-                      <input value={data.customer.vehicleBrand} onChange={(e) => onUpdateCustomer({ vehicleBrand: e.target.value })} className="w-full border rounded px-3 py-1.5 pr-7 text-xs font-bold bg-gray-50" placeholder="TOYOTA" />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Hãng xe</label>
+                    <div className="relative flex-1">
+                      <input value={data.customer.vehicleBrand} onChange={(e) => onUpdateCustomer({ vehicleBrand: e.target.value })} className="flex-1 border rounded px-3 py-1.5 text-xs font-bold bg-gray-50" placeholder="TOYOTA" />
                       <Building2 size={12} className="absolute right-2 top-2 text-gray-300" />
                     </div>
-                  </Field>
-                  <Field label="Dòng xe">
-                    <div className="relative min-w-0">
-                      <input value={data.customer.vehicleLine} onChange={(e) => onUpdateCustomer({ vehicleLine: e.target.value })} className="w-full border rounded px-3 py-1.5 pr-7 text-xs font-bold bg-gray-50" placeholder="Corolla Cross" />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Dòng xe</label>
+                    <div className="relative flex-1">
+                      <input value={data.customer.vehicleLine} onChange={(e) => onUpdateCustomer({ vehicleLine: e.target.value })} className="flex-1 border rounded px-3 py-1.5 text-xs font-bold bg-gray-50" placeholder="Corolla Cross" />
                       <Truck size={12} className="absolute right-2 top-2 text-gray-300" />
                     </div>
-                  </Field>
-                  <Field label="Trọng tải">
-                    <div className="relative min-w-0">
-                      <input value={data.customer.payload} onChange={(e) => onUpdateCustomer({ payload: e.target.value })} className="w-full border rounded px-3 py-1.5 pr-10 text-xs font-bold" />
+                  </div>
+                </div>
+                {/* Car info 2 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-x-12 gap-y-4">
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Trọng tải</label>
+                    <div className="relative flex-1">
+                      <input value={data.customer.payload} onChange={(e) => onUpdateCustomer({ payload: e.target.value })} className="flex-1 border rounded px-3 py-1.5 text-xs font-bold" />
                       <span className="absolute right-2 top-1.5 text-[9px] text-gray-400 font-bold">Tấn</span>
                     </div>
-                  </Field>
-                  <Field label="Số chỗ">
-                    <div className="relative min-w-0">
-                      <input value={data.customer.seats} onChange={(e) => onUpdateCustomer({ seats: e.target.value })} className="w-full border rounded px-3 py-1.5 pr-10 text-xs font-bold" />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Số chỗ</label>
+                    <div className="relative flex-1">
+                      <input value={data.customer.seats} onChange={(e) => onUpdateCustomer({ seats: e.target.value })} className="flex-1 border rounded px-3 py-1.5 text-xs font-bold" />
                       <span className="absolute right-2 top-1.5 text-[9px] text-gray-400 font-bold">Chỗ</span>
                     </div>
-                  </Field>
-                  <Field label="Loại xe">
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Loại xe</label>
                     <select
                       value={vehicleType}
                       onChange={(e) => setVehicleType(e.target.value)}
-                      className="w-full border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
+                      className="w-48 border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
                     >
                       <option value="Xe chở hàng">Xe chở hàng</option>
                       <option value="Xe chở người">Xe chở người</option>
                     </select>
-                  </Field>
-                  <Field label="Gói cứu hộ sử dụng">
-                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                      <div className={`w-max max-w-full border rounded px-3 py-1.5 text-xs font-bold flex items-center justify-between gap-2 whitespace-nowrap ${data.customer.servicePackage === 'Không có' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                        <span>{data.customer.servicePackage}</span>
-                        {data.customer.servicePackage === 'Không có' ? <UserX size={14} /> : <UserCheck size={14} />}
-                      </div>
-                      <button type="button" onClick={() => setIsPackageModalOpen(true)} className="text-[10px] text-blue-600 font-bold underline whitespace-nowrap">Chi tiết gói</button>
-                    </div>
-                    {hasOrderToday && (
-                      <div className="flex items-center gap-1.5 text-amber-700">
-                        <AlertTriangle size={13} className="shrink-0" />
-                        <span className="text-[11px] font-bold">Đã phát sinh đơn trong ngày</span>
-                      </div>
-                    )}
-                  </Field>
-                  <Field label="Doanh nghiệp">
-                    <select
-                      value={selectedEnterprise}
-                      onChange={(e) => handleEnterpriseChange(e.target.value)}
-                      className="w-full border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
-                    >
-                      {ENTERPRISE_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  {selectedEnterprise && (
-                    <Field label="Bảo lãnh">
-                      <select
-                        value={hasGuarantee}
-                        onChange={(e) => handleGuaranteeChange(e.target.value as 'yes' | 'no')}
-                        className="w-full border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
-                      >
-                        <option value="no">Không</option>
-                        <option value="yes">Có</option>
-                      </select>
-                    </Field>
-                  )}
-                  {selectedEnterprise && hasGuarantee === 'yes' && (
-                    <>
-                      <Field label="Loại bảo lãnh" required>
-                        <select
-                          value={guaranteeType}
-                          onChange={(e) => handleGuaranteeTypeChange(e.target.value as 'rate' | 'fixed')}
-                          className="w-full border rounded px-3 py-1.5 text-xs bg-white outline-none focus:border-vetc-green font-bold text-gray-700"
-                        >
-                          <option value="rate">Theo tỷ lệ</option>
-                          <option value="fixed">Số tiền cố định</option>
-                        </select>
-                      </Field>
-                      <Field label="Giá trị bảo lãnh" required>
-                        <div className="relative min-w-0">
-                          <input
-                            value={guaranteeValue}
-                            onChange={(e) => handleGuaranteeValueChange(e.target.value)}
-                            inputMode="numeric"
-                            placeholder={guaranteeType === 'rate' ? '1 – 100' : 'Nhập số tiền'}
-                            className="w-full border rounded px-3 py-1.5 pr-8 text-xs text-right font-bold outline-none focus:border-vetc-green"
-                          />
-                          <span className="absolute right-2 top-1.5 text-[10px] font-bold text-gray-400 pointer-events-none">
-                            {guaranteeType === 'rate' ? '%' : 'đ'}
-                          </span>
+                  </div>
+                </div>
+                {/* Package info */}
+                <div className="pb-4 border-b border-gray-100 space-y-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-x-12 gap-y-4">
+                    <div className="flex items-center">
+                      <label className="w-40 text-[10px] font-bold text-gray-500 uppercase">Gói cứu hộ sử dụng</label>
+                      <div className="flex-1 flex items-center space-x-2">
+                        <div className={`flex-1 border rounded px-3 py-1.5 text-xs font-bold flex items-center justify-between ${data.customer.servicePackage === 'Không có' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                          <span>{data.customer.servicePackage}</span>
+                          {data.customer.servicePackage === 'Không có' ? <UserX size={14} /> : <UserCheck size={14} />}
                         </div>
-                      </Field>
-                    </>
+                        <button onClick={() => setIsPackageModalOpen(true)} className="text-[10px] text-blue-600 font-bold underline whitespace-nowrap">Chi tiết gói</button>
+                      </div>
+                    </div>
+                  </div>
+                  {hasOrderToday && (
+                    <div className="flex items-center gap-1.5 text-amber-700 pl-0 md:pl-40">
+                      <AlertTriangle size={13} className="shrink-0" />
+                      <span className="text-[11px] font-bold">Đã phát sinh đơn trong ngày</span>
+                    </div>
                   )}
                 </div>
-                {selectedEnterprise && (
-                  <Field label="Ghi chú bảo lãnh">
-                    <input
-                      value={guaranteeNote}
-                      onChange={(e) => setGuaranteeNote(e.target.value)}
-                      placeholder="Nhập nội dung chi tiết bảo lãnh..."
-                      className="w-full border rounded px-3 py-1.5 text-xs"
-                    />
-                  </Field>
-                )}
-                <div className="pt-4 border-t border-gray-100 space-y-3">
-                <div className={fieldGridClass} style={fieldGridStyle}>
-                  <Field label="Vị trí sự cố" required className="col-span-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <div className="relative flex-1 min-w-0">
-                        <input
-                          value={data.assistance.address}
-                          onChange={(e) => onUpdateAssistance({ address: e.target.value })}
-                          className="w-full border rounded px-3 py-1.5 pr-24 text-xs font-medium"
-                          placeholder="Vị trí sự cố"
-                        />
-                        <FloodWarningBadge compact className="absolute right-2 top-1/2 -translate-y-1/2" />
-                      </div>
-                      <button type="button" onClick={() => setIsMapModalOpen(true)} className="shrink-0 bg-vetc-green text-white px-2 py-1.5 rounded text-[10px] font-bold flex items-center gap-1 hover:bg-green-700 transition-all active:scale-95" title="Bản đồ">
-                        <MapPin size={12} />
-                        Bản đồ
-                      </button>
-                    </div>
-                  </Field>
-                  <Field label="Lat">
-                    <input
-                      value={data.assistance.lat}
-                      onChange={(e) => onUpdateAssistance({ lat: e.target.value })}
-                      className="w-full border rounded px-3 py-1.5 text-xs font-medium text-center"
-                      placeholder="Vĩ độ"
-                    />
-                  </Field>
-                  <Field label="Long">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <input
-                        value={data.assistance.lng}
-                        onChange={(e) => onUpdateAssistance({ lng: e.target.value })}
-                        className="w-full min-w-0 border rounded px-3 py-1.5 text-xs font-medium text-center"
-                        placeholder="Kinh độ"
+                {/* Location info */}
+                <div className="flex items-center space-x-2">
+                  <label className="w-36 text-[10px] font-bold text-gray-500 uppercase shrink-0">Vị trí sự cố <span className="text-red-500">*</span></label>
+                  <div className="flex-1 flex items-center space-x-2 overflow-x-auto custom-scrollbar pb-1">
+                    <div className="relative w-[600px] shrink-0">
+                      <input 
+                        value={data.assistance.address} 
+                        onChange={(e) => onUpdateAssistance({ address: e.target.value })} 
+                        className="w-full border rounded px-2 py-1.5 pr-24 text-xs font-medium"
+                        placeholder="Vị trí sự cố"
                       />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${data.assistance.lat}, ${data.assistance.lng}`);
-                        }}
-                        className="shrink-0 text-gray-400 hover:text-vetc-green transition-colors"
-                        title="Copy tọa độ"
-                      >
-                        <Copy size={14} />
-                      </button>
+                      <FloodWarningBadge compact className="absolute right-2 top-1/2 -translate-y-1/2" />
                     </div>
-                  </Field>
+                    <button onClick={() => setIsMapModalOpen(true)} className="bg-vetc-green text-white px-4 py-1.5 rounded text-[11px] font-bold flex items-center justify-center hover:bg-green-700 transition-all active:scale-95 shadow-sm shrink-0" title="Bản đồ">
+                      <MapPin size={14} />
+                      <span>&nbsp;Bản đồ</span>
+                    </button>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Lat</label>
+                      <input 
+                        value={data.assistance.lat} 
+                        onChange={(e) => onUpdateAssistance({ lat: e.target.value })}
+                        className="w-20 border rounded px-1 py-1.5 text-[10px] font-medium shrink-0 text-center" 
+                        placeholder="Vĩ độ" 
+                      />
+                    </div>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Long</label>
+                      <input 
+                        value={data.assistance.lng} 
+                        onChange={(e) => onUpdateAssistance({ lng: e.target.value })}
+                        className="w-20 border rounded px-1 py-1.5 text-[10px] font-medium shrink-0 text-center" 
+                        placeholder="Kinh độ" 
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        const coords = `${data.assistance.lat}, ${data.assistance.lng}`;
+                        navigator.clipboard.writeText(coords);
+                      }}
+                      className="text-gray-400 hover:text-vetc-green transition-colors shrink-0"
+                      title="Copy tọa độ"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
                 </div>
-                <div style={{ width: 'calc((100% - 3rem) / 4)' }}>
-                  <Field label="Điểm xưởng">
+
+                {/* Điểm xưởng */}
+                <div className="flex items-center space-x-2">
+                  <label className="w-36 text-[10px] font-bold text-gray-500 uppercase shrink-0">Điểm xưởng</label>
+                  <div className="w-[280px] shrink-0">
                     <WorkshopSelect
                       value={workshopStation}
                       onChange={setWorkshopStation}
                       defaultAddress={towingDestination || data.assistance.address}
                       defaultLat={towingLat || data.assistance.lat}
                       defaultLng={towingLng || data.assistance.lng}
-                      className="h-[30px] px-3 text-xs"
+                      className="h-[31px] px-2 text-xs"
                     />
-                  </Field>
+                  </div>
                 </div>
-                <div className={fieldGridClass} style={fieldGridStyle}>
-                  <Field label="Điểm kéo về" className="col-span-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <div className="relative flex-1 min-w-0">
-                        <input
+
+                {/* Điểm kéo về */}
+                <div className="flex items-center space-x-2">
+                  <label className="w-36 text-[10px] font-bold text-gray-500 uppercase shrink-0">Điểm kéo về</label>
+                  <div className="flex-1 flex items-center space-x-2 overflow-x-auto custom-scrollbar pb-1">
+                    <div className="relative w-[600px] shrink-0">
+                      <input
                           value={towingDestination}
                           onChange={(e) => setTowingDestination(e.target.value)}
-                          className="w-full border rounded px-3 py-1.5 pr-24 text-xs font-medium"
+                          className="w-full border rounded px-2 py-1.5 pr-24 text-xs font-medium"
                           placeholder="Địa chỉ điểm kéo về"
-                        />
-                        <FloodWarningBadge compact className="absolute right-2 top-1/2 -translate-y-1/2" />
-                      </div>
-                      <button type="button" onClick={() => setIsMapModalOpen(true)} className="shrink-0 bg-vetc-green text-white px-2 py-1.5 rounded text-[10px] font-bold flex items-center gap-1 hover:bg-green-700 transition-all active:scale-95" title="Bản đồ">
-                        <MapPin size={12} />
-                        Bản đồ
-                      </button>
+                      />
+                      <FloodWarningBadge compact className="absolute right-2 top-1/2 -translate-y-1/2" />
                     </div>
-                  </Field>
-                  <Field label="Lat">
-                    <input
-                      value={towingLat}
-                      onChange={(e) => setTowingLat(e.target.value)}
-                      className="w-full border rounded px-3 py-1.5 text-xs font-medium text-center"
-                      placeholder="Vĩ độ"
-                    />
-                  </Field>
-                  <Field label="Long">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    <button onClick={() => setIsMapModalOpen(true)} className="bg-vetc-green text-white px-4 py-1.5 rounded text-[11px] font-bold flex items-center justify-center hover:bg-green-700 transition-all active:scale-95 shadow-sm shrink-0" title="Bản đồ">
+                      <MapPin size={14} />
+                      <span>&nbsp;Bản đồ</span>
+                    </button>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Lat</label>
+                      <input
+                        value={towingLat}
+                        onChange={(e) => setTowingLat(e.target.value)}
+                        className="w-20 border rounded px-1 py-1.5 text-[10px] font-medium shrink-0 text-center"
+                        placeholder="Vĩ độ"
+                      />
+                    </div>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Long</label>
                       <input
                         value={towingLng}
                         onChange={(e) => setTowingLng(e.target.value)}
-                        className="w-full min-w-0 border rounded px-3 py-1.5 text-xs font-medium text-center"
+                        className="w-20 border rounded px-1 py-1.5 text-[10px] font-medium shrink-0 text-center"
                         placeholder="Kinh độ"
                       />
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(`${towingLat}, ${towingLng}`)}
-                        className="shrink-0 text-gray-400 hover:text-vetc-green transition-colors"
-                        title="Copy tọa độ"
-                      >
-                        <Copy size={14} />
-                      </button>
                     </div>
-                  </Field>
+                    <button
+                      onClick={() => {
+                        const coords = `${towingLat}, ${towingLng}`;
+                        navigator.clipboard.writeText(coords);
+                      }}
+                      className="text-gray-400 hover:text-vetc-green transition-colors shrink-0"
+                      title="Copy tọa độ"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
                 </div>
-                <div style={{ width: 'calc((100% - 3rem) / 4)' }}>
-                  <Field label="Khoảng cách (Ước tính)">
-                    <div className="relative min-w-0">
-                      <input
-                        value={estimatedDistance}
-                        onChange={(e) => setEstimatedDistance(e.target.value)}
-                        className="w-full border rounded px-3 py-1.5 pr-8 text-xs font-medium outline-none focus:border-vetc-green bg-white"
-                        placeholder="Khoảng cách (Ước tính)"
-                      />
-                      <span className="absolute right-2 top-1.5 text-[9px] text-gray-400 font-bold">KM</span>
-                    </div>
-                  </Field>
+
+                {/* Khoảng cách (Ước tính) */}
+                <div className="flex items-center space-x-2">
+                  <label className="w-36 text-[10px] font-bold text-gray-500 uppercase shrink-0">Khoảng cách<br/>(Ước tính)</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      value={estimatedDistance}
+                      onChange={(e) => setEstimatedDistance(e.target.value)}
+                      className="w-48 border rounded px-3 py-1.5 text-xs font-medium outline-none focus:border-vetc-green bg-white"
+                      placeholder="Khoảng cách (Ước tính)"
+                    />
+                    <span className="text-[10px] text-gray-500 font-bold uppercase">KM</span>
+                  </div>
                 </div>
-                <div className={fieldGridClass} style={fieldGridStyle}>
-                  <Field label="Loại vị trí">
-                    <div className="flex flex-wrap gap-2">
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Loại vị trí</label>
+                    <div className="flex flex-wrap gap-2 mt-1">
                       {['Vùng núi', 'Cao tốc', 'Đô thị'].map((type) => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setLocationType(type)}
-                          className={`px-3 py-1.5 rounded text-xs font-bold border transition-all active:scale-95 ${
-                            locationType === type
-                              ? 'bg-vetc-green text-white border-vetc-green shadow-md'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-vetc-green hover:bg-green-50'
-                          }`}
-                        >
-                          {type}
-                        </button>
+                          <button
+                              key={type}
+                              onClick={() => setLocationType(type)}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                                  locationType === type
+                                      ? 'bg-vetc-green text-white border-vetc-green shadow-md'
+                                      : 'bg-white text-gray-600 border-gray-200 hover:border-vetc-green hover:bg-green-50'
+                              } ${'active:scale-95'}`}
+                          >
+                            {type}
+                          </button>
                       ))}
                     </div>
-                  </Field>
-                  <Field label="Mức độ nghiêm trọng">
-                    <div className="flex flex-wrap gap-2">
+                  </div>
+                  <div className="flex items-center">
+                    <label className="w-40 text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">Mức độ nghiêm trọng</label>
+                    <div className="flex flex-wrap gap-2 mt-1">
                       {[
                         { label: 'Nhẹ', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300', activeColor: 'bg-green-600 text-white border-green-600 shadow-md' },
                         { label: 'Mắc kẹt', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300', activeColor: 'bg-amber-500 text-white border-amber-500 shadow-md' },
-                        { label: 'Nguy hiểm', color: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300', activeColor: 'bg-red-600 text-white border-red-600 shadow-md' },
+                        { label: 'Nguy hiểm', color: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300', activeColor: 'bg-red-600 text-white border-red-600 shadow-md' }
                       ].map((level) => (
-                        <button
-                          key={level.label}
-                          type="button"
-                          onClick={() => setSeverityLevel(level.label)}
-                          className={`px-3 py-1.5 rounded text-xs font-bold border transition-all active:scale-95 ${
-                            severityLevel === level.label ? level.activeColor : level.color
-                          }`}
-                        >
-                          {level.label}
-                        </button>
+                          <button
+                              key={level.label}
+                              onClick={() => setSeverityLevel(level.label)}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                                  severityLevel === level.label
+                                      ? level.activeColor
+                                      : level.color
+                              } ${'active:scale-95'}`}
+                          >
+                            {level.label}
+                          </button>
                       ))}
                     </div>
-                  </Field>
-                  <Field label="Thời tiết">
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { label: 'Bình thường', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300', activeColor: 'bg-green-600 text-white border-green-600 shadow-md' },
-                        { label: 'Mưa bão', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300', activeColor: 'bg-amber-500 text-white border-amber-500 shadow-md' },
-                        { label: 'Ngập lụt', color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300', activeColor: 'bg-sky-600 text-white border-sky-600 shadow-md' },
-                        { label: 'Thiên tai', color: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300', activeColor: 'bg-red-600 text-white border-red-600 shadow-md' },
-                      ].map((level) => (
-                        <button
-                          key={level.label}
-                          type="button"
-                          onClick={() => setWeather(level.label)}
-                          className={`px-2 py-1.5 rounded text-[10px] font-bold border transition-all active:scale-95 ${
-                            weather === level.label ? level.activeColor : level.color
-                          }`}
-                        >
-                          {level.label}
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                </div>
+                  </div>
                 </div>
 
                 {/* Added sections from Right Column */}
                 <div className="pt-4 border-t border-gray-100 space-y-4">
                     {/* Mô tả chi tiết */}
-                    <Field
-                      label="Mô tả chi tiết tình trạng sự cố"
-                      required
-                      spreadTrailing
-                      trailing={<AISuggestionSection description={description} onApply={(s) => { setDescription(s.analysis); onUpdateService({ description: s.analysis }); }} variant="ghost" />}
-                    >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-gray-500 uppercase">Mô tả chi tiết tình trạng sự cố <span className="text-red-500">*</span></label>
+                          <AISuggestionSection description={description} onApply={(s) => { setDescription(s.analysis); onUpdateService({ description: s.analysis }); }} variant="ghost" />
+                      </div>
                       <div className="relative">
-                        <textarea rows={5} value={description} onChange={(e) => { setDescription(e.target.value); onUpdateService({ description: e.target.value }); }} placeholder="Mô tả cụ thể sự cố xe..." className="w-full border rounded px-3 py-1.5 text-xs min-h-[80px] outline-none focus:border-vetc-green transition-all text-left" />
+                        <textarea rows={5} value={description} onChange={(e) => { setDescription(e.target.value); onUpdateService({ description: e.target.value }); }} placeholder="Mô tả cụ thể sự cố xe..." className="w-full border rounded-lg px-3 py-2 text-xs min-h-[80px] outline-none focus:border-indigo-500 transition-all text-left" />
                         {isAiProcessing && <div className="absolute bottom-2 right-2 flex items-center space-x-1 text-[9px] text-indigo-500 font-black uppercase"><Loader2 size={12} className="animate-spin" /><span>AI Analyzing...</span></div>}
                       </div>
-                    </Field>
+                    </div>
 
                     {/* Services rescue */}
-                    <Field
-                      label="Dịch vụ cứu hộ"
-                      spreadTrailing
-                      trailing={
-                        <span className="normal-case flex items-center gap-2">
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block">Dịch vụ cứu hộ</label>
+                        <div className="flex items-center space-x-6">
                           {data.customer.servicePackage === 'Không có' && (
-                            <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-black border border-red-100">
+                            <div className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-black border border-red-100 italic shadow-sm">
                               Khách hàng chưa mua gói dịch vụ
-                            </span>
+                            </div>
                           )}
-                          <span className="text-[10px] font-bold text-gray-500">Tổng cộng:</span>
-                          <span className="bg-vetc-green text-white px-2 py-0.5 rounded-full text-[10px] font-black">
-                            {selectedServices.length} dịch vụ
-                          </span>
-                        </span>
-                      }
-                    >
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs font-bold text-gray-500">Tổng cộng:</span>
+                            <div className="bg-vetc-green text-white px-3 py-1 rounded-full text-[10px] font-black shadow-md flex items-center space-x-1">
+                              <span>{selectedServices.length}</span>
+                              <span className="text-[9px] font-bold uppercase">dịch vụ</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                       <ServiceSelectionField selectedServices={selectedServices} onUpdate={(val) => { setSelectedServices(val); onUpdateService({ serviceIds: val }); }} showTitle={false} />
-                    </Field>
-                    <Field label="Hình ảnh hiện trường">
+                    </div>
+
+                    {/* Image */}
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase block mb-3">Hình ảnh hiện trường</label>
                       <ImageUploadSection onlyScene={true} sceneImages={sceneImages} />
-                    </Field>
+                    </div>
+
+                    {/* Note for OSA */}
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center mb-2"><MessageSquare size={14} className="mr-1.5 text-amber-600" /> Ghi chú điều phối (Auto-AI)</label>
+                      <div className="relative">
+                          {isAiApplied && (
+                            <div className="absolute top-3 right-3 flex items-center text-amber-600 font-black uppercase tracking-tighter bg-amber-100/50 px-2 py-1 rounded pointer-events-none">
+                              <Sparkles size={10} className="mr-1.5 animate-pulse" /> 
+                              <span className="text-[9px]">RSA-AI</span>
+                            </div>
+                          )}
+                          <textarea 
+                              value={note}
+                              onChange={(e) => {
+                                  setNote(e.target.value);
+                                  onUpdateAssistance({ note: e.target.value });
+                              }}
+                              placeholder="Thông tin điều phối sẽ hiển thị khi AI phân tích hoặc nhập thủ công..."
+                              className={`w-full rounded-xl border-2 p-3 min-h-[100px] text-[11px] font-bold leading-relaxed transition-all outline-none resize-y ${
+                                  isAiApplied 
+                                    ? 'border-amber-300 bg-amber-50 text-amber-900 shadow-inner focus:border-amber-500' 
+                                    : 'border-gray-200 text-gray-700 focus:border-vetc-green focus:bg-white'
+                                }`}
+                              rows={8}
+                          />
+                      </div>
+                    </div>
 
                 </div>
               </div>

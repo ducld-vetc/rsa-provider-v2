@@ -20,44 +20,14 @@ export type VehicleOwnerInfo = {
 export type VehicleRescuePackage = {
   id: string;
   name: string;
-  /** ALWAYS = gói thường; TRIP = bảo hiểm chuyến đi */
-  packageType?: 'ALWAYS' | 'TRIP';
   /** Không có | Active | Expired */
   status: 'active' | 'none' | 'expired';
-  /** Lượt cứu hộ còn lại theo gói — không đếm theo từng dịch vụ */
-  remainingUses?: number;
-  /** Hạn mức lượt cứu hộ của gói */
-  totalUses?: number;
+  remainingServices?: number;
+  totalServices?: number;
   validFrom?: string;
   validTo?: string;
   coverageKm?: number;
-  /** ISO yyyy-mm-dd — dùng chọn gói TRIP mới nhất */
-  activatedAt?: string;
-  /** Số dư bảo lãnh còn lại (chỉ TRIP) */
-  remainSponsorAmount?: number;
 };
-
-export type VehicleRescueHistoryItem = {
-  id: string;
-  /** Mã đơn, ví dụ RS12609220069 */
-  orderCode: string;
-  /** Nhóm trạng thái: Tiếp nhận, Điều phối, Thực hiện, Kết thúc */
-  status: string;
-  /** Đơn gói | Đơn lẻ */
-  orderType: string;
-  osa: string;
-  cost: number;
-  /** Trạng thái chi tiết của đơn */
-  orderStatus: string;
-  /** Chờ thanh toán | Đã cọc tiền | Đã thanh toán */
-  paymentStatus: string;
-  createdAt: string;
-};
-
-/** VEHICLE = bảng vehicle nội bộ (thường thiếu). ONE_VEHICLE = One Vehicle chuẩn hóa dữ liệu xe. */
-export type VehicleDataSource = 'VEHICLE' | 'ONE_VEHICLE';
-
-export type VehicleFieldKey = 'plate' | 'vin' | 'brand' | 'model' | 'loadTons' | 'seats' | 'vehicleType';
 
 export type VehicleSearchResult = {
   id: string;
@@ -78,14 +48,8 @@ export type VehicleSearchResult = {
   documentImages?: string[];
   /** Lịch sử xe qua trạm gần nhất */
   stationPassHistory?: VehicleStationPass[];
-  /** Các gói cứu hộ gắn với phương tiện (ALWAYS + TRIP) */
+  /** Các gói cứu hộ gắn với phương tiện (có thể nhiều gói) */
   rescuePackages?: VehicleRescuePackage[];
-  /** Lịch sử cứu hộ theo BSX */
-  rescueHistory?: VehicleRescueHistoryItem[];
-  /** Nguồn từng trường thông tin xe */
-  fieldSources?: Partial<Record<VehicleFieldKey, VehicleDataSource>>;
-  /** Bản ghi thuộc Nội bộ hay One Vehicle. Mặc định Nội bộ. */
-  recordSource?: VehicleDataSource;
 };
 
 const DEFAULT_STATION_HISTORY: VehicleStationPass[] = [
@@ -121,15 +85,6 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
     seats: 5,
     loadTons: '1.4',
     vehicleType: 'Xe chở người',
-    fieldSources: {
-      plate: 'VEHICLE',
-      vin: 'VEHICLE',
-      brand: 'ONE_VEHICLE',
-      model: 'ONE_VEHICLE',
-      loadTons: 'ONE_VEHICLE',
-      seats: 'ONE_VEHICLE',
-      vehicleType: 'ONE_VEHICLE',
-    },
     vin: 'R7C2X9M4A8',
     imageUrl: 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?w=240&h=160&fit=crop',
     registrationUrl: '#',
@@ -152,101 +107,34 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
     stationPassHistory: DEFAULT_STATION_HISTORY,
     rescuePackages: [
       {
-        id: 'pkg-v0-trip-new',
-        name: 'Bảo hiểm chuyến đi DIG + CHUBB',
-        packageType: 'TRIP',
-        status: 'active',
-        validFrom: '20/09/2026',
-        validTo: '20/09/2027',
-        coverageKm: 200,
-        activatedAt: '2026-09-20',
-        remainSponsorAmount: 8500000,
-        remainingUses: 1,
-        totalUses: 1,
-      },
-      {
-        id: 'pkg-v0-trip-old',
-        name: 'Bảo hiểm chuyến đi PVI',
-        packageType: 'TRIP',
-        status: 'active',
-        validFrom: '01/08/2026',
-        validTo: '31/07/2027',
-        coverageKm: 150,
-        activatedAt: '2026-08-01',
-        remainSponsorAmount: 2000000,
-        remainingUses: 1,
-        totalUses: 1,
-      },
-      {
         id: 'pkg-v0-1',
         name: 'Gói cơ bản 10 dịch vụ',
-        packageType: 'ALWAYS',
         status: 'active',
-        remainingUses: 7,
-        totalUses: 10,
+        remainingServices: 7,
+        totalServices: 10,
         validFrom: '01/01/2026',
         validTo: '31/12/2026',
         coverageKm: 100,
-        activatedAt: '2026-01-01',
       },
       {
         id: 'pkg-v0-2',
         name: 'Gói cao cấp 20 dịch vụ',
-        packageType: 'ALWAYS',
         status: 'active',
-        remainingUses: 18,
-        totalUses: 20,
+        remainingServices: 18,
+        totalServices: 20,
         validFrom: '01/03/2026',
         validTo: '28/02/2027',
         coverageKm: 150,
-        activatedAt: '2026-03-01',
       },
       {
         id: 'pkg-v0-3',
         name: 'Gói doanh nghiệp VETC',
-        packageType: 'ALWAYS',
         status: 'expired',
-        remainingUses: 0,
-        totalUses: 15,
+        remainingServices: 0,
+        totalServices: 15,
         validFrom: '01/01/2025',
         validTo: '31/12/2025',
         coverageKm: 100,
-        activatedAt: '2025-01-01',
-      },
-    ],
-    rescueHistory: [
-      {
-        id: 'rh-v0-1',
-        orderCode: 'RS12609220069',
-        status: 'Kết thúc',
-        orderType: 'Đơn gói',
-        osa: 'Nguyễn Thị Hoa',
-        cost: 1250000,
-        orderStatus: 'Hoàn thành',
-        paymentStatus: 'Đã thanh toán',
-        createdAt: '22/09/2026 08:40',
-      },
-      {
-        id: 'rh-v0-2',
-        orderCode: 'RS12607030012',
-        status: 'Kết thúc',
-        orderType: 'Đơn lẻ',
-        osa: 'Trần Văn Nam',
-        cost: 350000,
-        orderStatus: 'Hoàn thành',
-        paymentStatus: 'Đã thanh toán',
-        createdAt: '03/07/2026 16:15',
-      },
-      {
-        id: 'rh-v0-3',
-        orderCode: 'RS12604180008',
-        status: 'Kết thúc',
-        orderType: 'Đơn gói',
-        osa: 'Lê Minh Tuấn',
-        cost: 0,
-        orderStatus: 'Hủy đơn',
-        paymentStatus: 'Chờ thanh toán',
-        createdAt: '18/04/2026 11:02',
       },
     ],
   },
@@ -256,15 +144,6 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
     brand: 'Toyota',
     model: 'Camry 2.5Q',
     seats: 5,
-    fieldSources: {
-      plate: 'VEHICLE',
-      vin: 'VEHICLE',
-      brand: 'VEHICLE',
-      model: 'VEHICLE',
-      loadTons: 'VEHICLE',
-      seats: 'VEHICLE',
-      vehicleType: 'VEHICLE',
-    },
     loadTons: '1.5',
     vehicleType: 'Xe chở người',
     vin: 'R7C2X9M4A8',
@@ -290,8 +169,8 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
         id: 'pkg-v1-1',
         name: 'Gói cơ bản 10 dịch vụ',
         status: 'active',
-        remainingUses: 4,
-        totalUses: 10,
+        remainingServices: 4,
+        totalServices: 10,
         validFrom: '15/03/2026',
         validTo: '14/03/2027',
         coverageKm: 100,
@@ -300,8 +179,8 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
         id: 'pkg-v1-2',
         name: 'Gói ưu tiên khách hàng',
         status: 'active',
-        remainingUses: 2,
-        totalUses: 5,
+        remainingServices: 2,
+        totalServices: 5,
         validFrom: '01/07/2026',
         validTo: '30/06/2027',
         coverageKm: 120,
@@ -314,15 +193,6 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
     brand: 'Honda',
     model: 'CR-V L',
     seats: 7,
-    fieldSources: {
-      plate: 'ONE_VEHICLE',
-      vin: 'ONE_VEHICLE',
-      brand: 'ONE_VEHICLE',
-      model: 'ONE_VEHICLE',
-      loadTons: 'ONE_VEHICLE',
-      seats: 'ONE_VEHICLE',
-      vehicleType: 'ONE_VEHICLE',
-    },
     loadTons: '1.8',
     vehicleType: 'Xe chở người',
     vin: 'JHLRD7780PC012345',
@@ -347,8 +217,8 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
         id: 'pkg-v2-1',
         name: 'Gói cao cấp 20 dịch vụ',
         status: 'active',
-        remainingUses: 15,
-        totalUses: 20,
+        remainingServices: 15,
+        totalServices: 20,
         validFrom: '01/06/2026',
         validTo: '31/05/2027',
         coverageKm: 150,
@@ -357,8 +227,8 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
         id: 'pkg-v2-2',
         name: 'Gói cơ bản 10 dịch vụ',
         status: 'active',
-        remainingUses: 9,
-        totalUses: 10,
+        remainingServices: 9,
+        totalServices: 10,
         validFrom: '01/04/2026',
         validTo: '31/03/2027',
         coverageKm: 100,
@@ -428,8 +298,8 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
         id: 'pkg-v4-1',
         name: 'Gói cơ bản 10 dịch vụ',
         status: 'expired',
-        remainingUses: 0,
-        totalUses: 10,
+        remainingServices: 0,
+        totalServices: 10,
         validFrom: '01/01/2025',
         validTo: '31/12/2025',
         coverageKm: 100,
@@ -440,86 +310,6 @@ export const MOCK_VEHICLE_REGISTRY: VehicleSearchResult[] = [
         status: 'none',
       },
     ],
-  },
-  {
-    id: 'v0-ov',
-    recordSource: 'ONE_VEHICLE',
-    plate: '38A58531',
-    brand: 'Toyota',
-    model: 'Corolla Cross',
-    seats: 5,
-    loadTons: '1.4',
-    vehicleType: 'Xe chở người',
-    vin: 'R7C2X9M4A8',
-    imageUrl: '',
-    registrationUrl: '#',
-    registrationLabel: '',
-    owner: {
-      name: 'TRAN DINH LAN ANH',
-      phone: '0960123123',
-      address: '210 Phố Xã Đàn, Đống Đa, Hà Nội',
-      idNumber: '',
-    },
-  },
-  {
-    id: 'v0-ov-old-plate',
-    recordSource: 'ONE_VEHICLE',
-    plate: '30H88888',
-    brand: 'Toyota',
-    model: 'Corolla Cross',
-    seats: 5,
-    loadTons: '1.4',
-    vehicleType: 'Xe chở người',
-    vin: 'R7C2X9M4A8',
-    imageUrl: '',
-    registrationUrl: '#',
-    registrationLabel: '',
-    owner: {
-      name: 'CHU CU',
-      phone: '0900111222',
-      address: '',
-      idNumber: '',
-    },
-  },
-  {
-    id: 'v0-truck-ov',
-    recordSource: 'ONE_VEHICLE',
-    plate: '38A58531',
-    brand: 'Ford',
-    model: 'Transit',
-    seats: 16,
-    loadTons: '2.5',
-    vehicleType: 'Xe chở người',
-    vin: 'KMHDN45D5KU999111',
-    imageUrl: '',
-    registrationUrl: '#',
-    registrationLabel: '',
-    owner: {
-      name: 'NGUYEN VAN B',
-      phone: '0911222333',
-      address: '',
-      idNumber: '',
-    },
-  },
-  {
-    id: 'v-owner-2',
-    recordSource: 'VEHICLE',
-    plate: '51G22222',
-    brand: 'Honda',
-    model: 'City',
-    seats: 5,
-    loadTons: '1.2',
-    vehicleType: 'Xe chở người',
-    vin: 'RLHJK1234567890AB',
-    imageUrl: '',
-    registrationUrl: '#',
-    registrationLabel: '',
-    owner: {
-      name: 'TRAN DINH LAN ANH',
-      phone: '0960123123',
-      address: '210 Phố Xã Đàn, Đống Đa, Hà Nội',
-      idNumber: '001088056789',
-    },
   },
 ];
 
