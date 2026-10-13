@@ -32,7 +32,10 @@ export type MaintenancePlanStatus = 'NORMAL' | 'DUE_SOON' | 'OVERDUE';
 export interface VehicleMaintenanceOrder {
   id: string;
   createdAt: string;
+  performedAt?: string;
   content: string;
+  costVnd?: string;
+  attachmentName?: string;
   status: 'OPEN' | 'DONE';
 }
 

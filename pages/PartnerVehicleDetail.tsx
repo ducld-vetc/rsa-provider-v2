@@ -351,7 +351,10 @@ const PartnerVehicleDetail: React.FC = () => {
     isCreate ? [] : record?.maintenanceHistory ?? []
   );
   const [maintOrderOpen, setMaintOrderOpen] = useState(false);
+  const [maintOrderDate, setMaintOrderDate] = useState('');
   const [maintOrderNote, setMaintOrderNote] = useState('');
+  const [maintOrderCost, setMaintOrderCost] = useState('');
+  const [maintOrderFile, setMaintOrderFile] = useState<File | null>(null);
   const [pairPrimaryId, setPairPrimaryId] = useState('');
   const [pairSecondaryIds, setPairSecondaryIds] = useState<string[]>([]);
   const [driverDropOpen, setDriverDropOpen] = useState(false);
@@ -966,13 +969,25 @@ const PartnerVehicleDetail: React.FC = () => {
     triggerToast(`Đã gán ${staffList.length} tài xế cho xe ${vehicle.plate}`);
   };
 
+  const resetMaintOrderForm = () => {
+    setMaintOrderDate('');
+    setMaintOrderNote('');
+    setMaintOrderCost('');
+    setMaintOrderFile(null);
+  };
+
+  const maintOrderReady = Boolean(maintOrderDate && maintOrderNote.trim() && maintOrderCost);
+
   const handleCreateMaintOrder = () => {
     const content = maintOrderNote.trim();
-    if (!content) return;
+    if (!maintOrderDate || !content || !maintOrderCost) return;
     const order: VehicleMaintenanceOrder = {
       id: `mo-${Date.now()}`,
       createdAt: new Date().toLocaleString('vi-VN'),
+      performedAt: fromIsoDate(maintOrderDate),
       content,
+      costVnd: maintOrderCost,
+      attachmentName: maintOrderFile?.name,
       status: 'OPEN',
     };
     const next = [order, ...maintOrders];
@@ -981,7 +996,7 @@ const PartnerVehicleDetail: React.FC = () => {
       updateVehicle(vehicle.id, { maintenanceOrders: next });
       setRecord((prev) => (prev ? { ...prev, maintenanceOrders: next } : prev));
     }
-    setMaintOrderNote('');
+    resetMaintOrderForm();
     setMaintOrderOpen(false);
     triggerToast('Đã tạo lệnh bảo dưỡng');
   };
@@ -1345,7 +1360,7 @@ const PartnerVehicleDetail: React.FC = () => {
                 {!isCreate && canEditVehicle && (
                   <button
                     type="button"
-                    onClick={() => { setMaintOrderNote(''); setMaintOrderOpen(true); }}
+                    onClick={() => { resetMaintOrderForm(); setMaintOrderOpen(true); }}
                     className="flex items-center space-x-2 rounded-lg border-2 border-vetc-green px-4 py-2 text-xs font-bold text-vetc-green hover:bg-green-50"
                   >
                     <Plus size={14} />
@@ -2009,16 +2024,20 @@ const PartnerVehicleDetail: React.FC = () => {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 text-gray-600">
                 <tr>
-                  <th className="px-3 py-2 text-left font-bold">Thời điểm</th>
-                  <th className="px-3 py-2 text-left font-bold">Nội dung</th>
+                  <th className="px-3 py-2 text-left font-bold">Ngày thực hiện</th>
+                  <th className="px-3 py-2 text-left font-bold">Nội dung thực hiện</th>
+                  <th className="px-3 py-2 text-right font-bold">Tổng chi phí</th>
+                  <th className="px-3 py-2 text-left font-bold">File đính kèm</th>
                   <th className="px-3 py-2 text-left font-bold">Trạng thái</th>
                 </tr>
               </thead>
               <tbody>
                 {maintOrders.map((order) => (
                   <tr key={order.id} className="border-t border-gray-100">
-                    <td className="px-3 py-2 tabular-nums">{order.createdAt}</td>
+                    <td className="px-3 py-2 tabular-nums">{order.performedAt || order.createdAt}</td>
                     <td className="px-3 py-2">{order.content}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{order.costVnd || '—'}</td>
+                    <td className="px-3 py-2">{order.attachmentName || '—'}</td>
                     <td className="px-3 py-2">{order.status === 'OPEN' ? 'Mới' : 'Hoàn thành'}</td>
                   </tr>
                 ))}
@@ -2852,7 +2871,7 @@ const PartnerVehicleDetail: React.FC = () => {
               disabled={inactivateReason === 'Khác' && inactivateNote.trim().length < 5}
               className={`${partnerBtnDanger} disabled:opacity-50`}
             >
-              Xác nhận ngừng hoạt động
+              Ngưng hoạt động
             </button>
           </>
         )}
@@ -2862,16 +2881,6 @@ const PartnerVehicleDetail: React.FC = () => {
             Ngừng hoạt động xe <strong>{vehicle.plate}</strong>? Xe sẽ không được đề xuất cho các đơn
             cứu hộ mới trong toàn hệ thống.
           </div>
-
-          {/* Cảnh báo hủy ghép tài xế (BR-15, UI-50, UI-52) */}
-          {assignedDriverIds.length > 0 && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-amber-800 text-[11px] flex items-start gap-2">
-              <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <strong>Cảnh báo tài xế:</strong> Xe đang được ghép với tài xế ({driverNames(vehicle.driverIds, vehicle.driverId)}). Khi xe ngừng hoạt động, tất cả tài xế này sẽ <strong>tự động bị hủy ghép</strong> theo quy định BR-15.
-              </div>
-            </div>
-          )}
 
           <div>
             <label className={partnerLabelClass}>
@@ -2895,11 +2904,11 @@ const PartnerVehicleDetail: React.FC = () => {
               Ghi chú {inactivateReason === 'Khác' && <span className="text-red-500">*</span>}
             </label>
             <textarea
-              rows={3}
+              rows={1}
               value={inactivateNote}
               onChange={(e) => setInactivateNote(e.target.value)}
-              placeholder="Nhập thông tin quyết định ngừng hoạt động..."
-              className={`${inputClass} resize-none`}
+              placeholder="Nhập ghi chú..."
+              className={`${inputClass} !h-12 resize-none overflow-hidden py-3 leading-5`}
             />
           </div>
         </div>
@@ -2980,16 +2989,6 @@ const PartnerVehicleDetail: React.FC = () => {
             </div>
           )}
 
-          {/* Cảnh báo tài xế (BR-15, FL-M2-05 BR-G06) */}
-          {assignedDriverIds.length > 0 && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-amber-800 text-[11px] flex items-start gap-2">
-              <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <strong>Cảnh báo tài xế:</strong> Xe đang được ghép với {assignedDriverIds.length} tài xế ({driverNames(vehicle.driverIds, vehicle.driverId)}). Khi điều chuyển sang trạm mới, tất cả tài xế này sẽ <strong>tự động bị hủy ghép</strong> theo quy định BR-15.
-              </div>
-            </div>
-          )}
-
           <div>
             <label className={partnerLabelClass}>Ngày về dự kiến (điều chuyển tạm, tùy chọn)</label>
             <input
@@ -3003,11 +3002,11 @@ const PartnerVehicleDetail: React.FC = () => {
           <div>
             <label className={partnerLabelClass}>Lý do điều chuyển</label>
             <textarea
-              rows={3}
+              rows={1}
               value={transferReason}
               onChange={(e) => setTransferReason(e.target.value)}
-              placeholder="Nhập lý do điều chuyển..."
-              className={`${inputClass} resize-none`}
+              placeholder="Nhập lý do..."
+              className={`${inputClass} !h-12 resize-none overflow-hidden py-3 leading-5`}
             />
           </div>
         </div>
@@ -3856,25 +3855,59 @@ const PartnerVehicleDetail: React.FC = () => {
         open={maintOrderOpen}
         title={`Tạo lệnh bảo dưỡng — ${vehicle.plate}`}
         icon={<Wrench size={20} />}
-        onClose={() => setMaintOrderOpen(false)}
+        onClose={() => { resetMaintOrderForm(); setMaintOrderOpen(false); }}
         footer={(
           <>
-            <button type="button" onClick={() => setMaintOrderOpen(false)} className={partnerBtnNeutral}>Hủy</button>
-            <button type="button" disabled={!maintOrderNote.trim()} onClick={handleCreateMaintOrder} className={`${partnerBtnBrand} disabled:opacity-50`}>
+            <button type="button" onClick={() => { resetMaintOrderForm(); setMaintOrderOpen(false); }} className={partnerBtnNeutral}>Hủy</button>
+            <button type="button" disabled={!maintOrderReady} onClick={handleCreateMaintOrder} className={`${partnerBtnBrand} disabled:opacity-50`}>
               Tạo lệnh
             </button>
           </>
         )}
       >
-        <div className="space-y-2 text-xs">
-          <label className={partnerLabelClass}>Nội dung lệnh</label>
-          <textarea
-            rows={3}
-            value={maintOrderNote}
-            onChange={(e) => setMaintOrderNote(e.target.value)}
-            placeholder="VD: Bảo dưỡng cấp 1 theo chu kỳ 5.000 km"
-            className={`${inputClass} resize-none`}
-          />
+        <div className="space-y-4">
+          <div>
+            <label className={partnerLabelClass}>Ngày thực hiện</label>
+            <input
+              type="date"
+              value={maintOrderDate}
+              onChange={(e) => setMaintOrderDate(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={partnerLabelClass}>Nội dung thực hiện</label>
+            <textarea
+              rows={3}
+              value={maintOrderNote}
+              onChange={(e) => setMaintOrderNote(e.target.value)}
+              placeholder="VD: Bảo dưỡng cấp 1 theo chu kỳ 5.000 km"
+              className={`${inputClass} h-auto resize-none py-3`}
+            />
+          </div>
+          <div>
+            <label className={partnerLabelClass}>Tổng chi phí</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={maintOrderCost}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '');
+                setMaintOrderCost(digits ? Number(digits).toLocaleString('vi-VN') : '');
+              }}
+              placeholder="VD: 4.200.000"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={partnerLabelClass}>File đính kèm</label>
+            <FileDrop
+              accept=".pdf,image/*,.doc,.docx,.xls,.xlsx"
+              file={maintOrderFile}
+              hint="PDF, ảnh hoặc tài liệu"
+              onFile={setMaintOrderFile}
+            />
+          </div>
         </div>
       </PartnerModal>
 
