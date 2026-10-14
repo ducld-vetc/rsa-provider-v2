@@ -180,6 +180,10 @@ export interface VehicleRecord {
   stationId: string;
   driverId: string | null;
   driverIds?: string[];
+  /** Tài xế quản lý xe */
+  leadDriverId?: string | null;
+  /** Tài xế quản lý phụ */
+  deputyDriverId?: string | null;
   driverAssignedAt?: Record<string, string>;
   type: VehicleType;
   loadCarry: string;
@@ -194,6 +198,12 @@ export interface VehicleRecord {
   expectedReturnAt?: string;
   statusChangedAt?: string;
   statusChangedBy?: string;
+  /** Ngày bắt đầu Sửa chữa / Tạm dừng */
+  statusStartedAt?: string;
+  /** Đơn đang thực hiện khi trạng thái là Đang làm đơn */
+  activeOrderCode?: string;
+  activeOrderStage?: string;
+  activeOrderEta?: string;
   services?: string[];
   idleHours: number;
   inspectionDueDays: number;
@@ -238,6 +248,9 @@ export interface VehicleRecord {
   maintenanceLastAt?: string;
   maintenanceNextAt?: string;
   maintenanceStatus?: MaintenancePlanStatus;
+  /** Mốc km của chu kỳ bảo dưỡng hiện tại */
+  maintenanceFromKm?: string;
+  maintenanceToKm?: string;
   odoKm?: string;
   maintenanceOrders?: VehicleMaintenanceOrder[];
   maintenanceHistory?: VehicleMaintenanceHistory[];
@@ -725,6 +738,38 @@ export const VEHICLES: VehicleRecord[] = [
     { id: 'v25', plate: '51L22232', hnl: 56, brand: 'Dongfeng', modelLine: 'B190', stationId: 'tt-bt', driverId: null, type: 'san_nang_truot', loadCarry: '5 tấn', status: 'READY', ownership: 'Công ty', year: 2024, registrationDate: '29/11/2024', address: 'Nơ Trang Long, Bình Thạnh', inspectionDueDays: 110, gplhDueDays: 86, tndsDueDays: 73, broken: ['Dây cáp vải'] },
   ]),
 ];
+
+const vehicleById = (id: string) => VEHICLES.find((v) => v.id === id);
+
+VEHICLES.forEach((v) => {
+  const odo = Number(v.odoKm) || 10000;
+  const cycle = Number(v.maintenanceCycleKm) || 5000;
+  const remainder = odo % cycle;
+  const from = remainder === 0 ? Math.max(0, odo - cycle) : odo - remainder;
+  if (!v.maintenanceFromKm) v.maintenanceFromKm = String(from);
+  if (!v.maintenanceToKm) v.maintenanceToKm = String(from + cycle);
+  if (v.driverId && !v.leadDriverId) v.leadDriverId = v.driverId;
+});
+
+const fleetDemo: Record<string, Partial<VehicleRecord>> = {
+  v1: { leadDriverId: 's6', deputyDriverId: 's7', statusReason: 'Hết BH TNDS', statusStartedAt: '01/10/2026', expectedReturnAt: '20/10/2026', maintenanceFromKm: '10000', maintenanceToKm: '15000' },
+  v18: { leadDriverId: 's6', deputyDriverId: 's7' },
+  v2: { leadDriverId: 's7', deputyDriverId: 's6', maintenanceFromKm: '5000', maintenanceToKm: '10000' },
+  v3: { leadDriverId: 's9', statusReason: 'Hỏng bơm thủy lực sàn nâng', statusStartedAt: '01/10/2026', expectedReturnAt: '18/10/2026', maintenanceFromKm: '15000', maintenanceToKm: '20000' },
+  v4: { statusReason: undefined },
+  v7: { leadDriverId: 's9', activeOrderCode: 'RO-2610-0142', activeOrderStage: 'Đang kéo về trạm', activeOrderEta: '14/10/2026 11:30' },
+  v8: { statusReason: 'Hết đăng kiểm', statusStartedAt: '02/10/2026', expectedReturnAt: '18/10/2026' },
+  v10: { leadDriverId: 's7', deputyDriverId: 's6', statusReason: 'Quá hạn bảo dưỡng cấp 2', statusStartedAt: '08/10/2026', expectedReturnAt: '16/10/2026' },
+  v13: { activeOrderCode: 'RO-2610-0188', activeOrderStage: 'Đã tới hiện trường', activeOrderEta: '14/10/2026 15:00' },
+  v15: { leadDriverId: 's9', statusReason: 'Hết giấy phép lưu hành', statusStartedAt: '05/10/2026', expectedReturnAt: '25/10/2026' },
+  v17: { statusReason: 'Thay bố thắng', statusStartedAt: '10/10/2026', expectedReturnAt: '15/10/2026' },
+  v20: { activeOrderCode: 'RO-2610-0201', activeOrderStage: 'Đang di chuyển', activeOrderEta: '14/10/2026 12:10' },
+  v24: { statusReason: 'Hết đăng kiểm và BH TNDS', statusStartedAt: '11/10/2026', expectedReturnAt: '22/10/2026' },
+};
+Object.entries(fleetDemo).forEach(([id, patch]) => {
+  const row = vehicleById(id);
+  if (row) Object.assign(row, patch);
+});
 
 export const PARTNER_STAFF: PartnerStaffRecord[] = [
   { id: 's1', code: 'CP-0001', username: 'binhnv', fullname: 'Nguyễn Văn Bình', phone: '0901 111 111', cccd: '001080011111', address: 'Hà Nội', role: 'BDH', orgNodeId: 'bdh', stationId: null, licenseType: '—', licenseIssued: '—', licenseExpiry: '—', craneCert: false, hasAccount: true, canQuote: false, canRescue: false, workStatus: 'active', contractType: 'Toàn thời gian', joinedAt: '01/01/2018', mfaEnabled: true, lastLoginAt: '20/08/2026 09:02', lastLoginDevice: 'Web Portal', passwordChangedAt: '12/01/2026' },

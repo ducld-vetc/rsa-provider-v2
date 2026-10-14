@@ -1,6 +1,7 @@
 import {
   ACCEPTED_VEHICLE_LABEL,
   MAINTENANCE_STATUS_LABEL,
+  PARTNER_STAFF,
   RESCUE_CAPABILITY_LABEL,
   driverName,
   type AcceptedVehicleKind,
@@ -44,6 +45,16 @@ export const kgToTon = (kg?: string) => {
   return `${(n / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} tấn`;
 };
 
+export type BlockTagKey = 'docs' | 'tools' | 'driver' | 'gps' | 'maint';
+export type ShiftPresence = 'Online' | 'Nghỉ' | 'Hết ca';
+
+export type BlockTag = {
+  key: BlockTagKey;
+  label: string;
+  detail: string;
+  level: 'hard' | 'warn';
+};
+
 export type FleetRow = {
   statusLabel: string;
   cargoT: string;
@@ -58,15 +69,39 @@ export type FleetRow = {
   maintDue: boolean;
   maintLabel: string;
   maintSub: string;
+  maintKmText: string;
+  showDue: boolean;
   toolBad: boolean;
   toolLabel: string;
   toolSub: string;
   eligible: boolean;
   blocked: boolean;
+  warned: boolean;
   eligText: string;
+  gateTitle: string;
+  blockTags: BlockTag[];
   reasons: string[];
   primaryName: string;
   secondaryNames: string;
+  leadName: string;
+  deputyName: string;
+  onDutyName: string;
+  onDutyPresence: ShiftPresence | '';
+};
+
+const formatKm = (value?: string) => {
+  const n = Number(value);
+  if (!value || Number.isNaN(n)) return '';
+  return n.toLocaleString('vi-VN');
+};
+
+const presenceOf = (staffId?: string | null): ShiftPresence | '' => {
+  if (!staffId) return '';
+  const staff = PARTNER_STAFF.find((s) => s.id === staffId);
+  if (!staff) return '';
+  if (staff.workStatus === 'paused' || staff.workStatus === 'left') return 'Nghỉ';
+  if (staff.dutyStatus === 'on_duty' || staff.dutyStatus === 'on_order') return 'Online';
+  return 'Hết ca';
 };
 
 export const fleetRowOf = (v: VehicleRecord, gpsLost: boolean): FleetRow => {
@@ -75,21 +110,47 @@ export const fleetRowOf = (v: VehicleRecord, gpsLost: boolean): FleetRow => {
   const docsOver = worstDue < 0;
   const docsSoon = worstDue >= 0 && worstDue <= 30;
   const broken = v.tools.filter((t) => !toolReady(t));
-  const maintOver = v.maintenanceStatus === 'OVERDUE';
-  const maintSoon = v.maintenanceStatus === 'DUE_SOON';
-  const noDriver = !v.driverId;
-  const reasons: string[] = [];
-  if (v.inspectionDueDays < 0) reasons.push('Hết đăng kiểm');
-  if (v.tndsDueDays < 0) reasons.push('Hết BH TNDS');
-  if (v.gplhDueDays < 0) reasons.push('Hết giấy phép lưu hành');
-  if (broken.length) reasons.push(`Công cụ hỏng: ${broken.map((t) => t.name).join(', ')}`);
-  if (noDriver) reasons.push('Chưa gán tài xế chính');
-  if (gpsLost) reasons.push('Mất tín hiệu GPS');
-  if (maintOver) reasons.push('Quá hạn bảo dưỡng');
-  const operable = statusLabel === 'Sẵn sàng' || statusLabel === 'Đang làm đơn';
-  const blocked = operable && reasons.length > 0;
-  const eligible = operable && reasons.length === 0;
+  const odo = Number(v.odoKm) || 0;
+  const toKm = Number(v.maintenanceToKm) || 0;
+  const kmOver = toKm > 0 && odo >= toKm;
+  const kmSoon = toKm > 0 && !kmOver && toKm - odo <= 500;
+  const maintOver = v.maintenanceStatus === 'OVERDUE' || kmOver || v.maintenanceDueDays < 0;
+  const maintSoon = !maintOver && (v.maintenanceStatus === 'DUE_SOON' || kmSoon || (v.maintenanceDueDays >= 0 && v.maintenanceDueDays <= 7));
+  const leadId = v.leadDriverId || v.driverId;
+  const noDriver = !leadId;
+  const assignedIds = Array.from(new Set([...(v.driverIds ?? []), leadId, v.deputyDriverId].filter(Boolean) as string[]));
+  const onlineId = assignedIds.find((id) => presenceOf(id) === 'Online');
+  const onDutyId = onlineId || leadId || '';
+  const onDutyPresence = presenceOf(onDutyId);
+  const driverOffShift = !noDriver && !onlineId;
+  const docDetails = [
+    v.inspectionDueDays < 0 ? `Hết đăng kiểm ${Math.abs(v.inspectionDueDays)} ngày` : v.inspectionDueDays <= 30 ? `Đăng kiểm còn ${v.inspectionDueDays} ngày` : '',
+    v.tndsDueDays < 0 ? `Hết BH TNDS ${Math.abs(v.tndsDueDays)} ngày` : v.tndsDueDays <= 30 ? `BH TNDS còn ${v.tndsDueDays} ngày` : '',
+    v.gplhDueDays < 0 ? `Hết giấy phép lưu hành ${Math.abs(v.gplhDueDays)} ngày` : v.gplhDueDays <= 30 ? `Giấy phép lưu hành còn ${v.gplhDueDays} ngày` : '',
+  ].filter(Boolean);
+  const maintKmText = v.maintenanceFromKm && v.maintenanceToKm
+    ? `${formatKm(v.maintenanceFromKm)} → ${formatKm(v.maintenanceToKm)} km${odo ? ` · ODO ${odo.toLocaleString('vi-VN')}` : ''}`
+    : '';
+  const blockTags: BlockTag[] = [];
+  if (docsOver) blockTags.push({ key: 'docs', label: 'Giấy tờ', detail: docDetails.join(' · '), level: 'hard' });
+  else if (docsSoon) blockTags.push({ key: 'docs', label: 'Giấy tờ', detail: docDetails.join(' · '), level: 'warn' });
+  if (broken.length) blockTags.push({ key: 'tools', label: 'Công cụ', detail: `Hỏng hoặc thiếu: ${broken.map((t) => t.name).join(', ')}`, level: 'hard' });
+  if (noDriver) blockTags.push({ key: 'driver', label: 'Tài xế', detail: 'Chưa gán tài xế quản lý', level: 'hard' });
+  else if (driverOffShift) blockTags.push({ key: 'driver', label: 'Tài xế', detail: `${driverName(onDutyId)} đang ${onDutyPresence || 'Hết ca'}, không có tài xế Online trong ca`, level: 'warn' });
+  if (gpsLost) blockTags.push({ key: 'gps', label: 'GPS', detail: 'Mất tín hiệu GPS', level: 'hard' });
+  if (maintOver) blockTags.push({ key: 'maint', label: 'Bảo dưỡng', detail: [kmOver ? `ODO đã qua mốc ${formatKm(v.maintenanceToKm)} km` : '', maintKmText, v.maintenanceNextAt ? `Hạn ngày ${v.maintenanceNextAt}` : ''].filter(Boolean).join(' · '), level: 'hard' });
+  else if (maintSoon) blockTags.push({ key: 'maint', label: 'Bảo dưỡng', detail: [kmSoon ? `Còn ${toKm - odo} km tới mốc` : '', maintKmText, v.maintenanceNextAt ? `Hạn ngày ${v.maintenanceNextAt}` : ''].filter(Boolean).join(' · '), level: 'warn' });
+  const reasons = blockTags.filter((tag) => tag.level === 'hard').map((tag) => tag.detail);
+  const statusBlocks = statusLabel !== 'Sẵn sàng';
+  const blocked = statusBlocks || blockTags.some((tag) => tag.level === 'hard');
+  const warned = !blocked && blockTags.some((tag) => tag.level === 'warn');
+  const eligible = !blocked && !warned;
   const secondary = (v.driverIds ?? []).filter((id) => id !== v.driverId);
+  const gateTitle = statusLabel === 'Đang làm đơn' && v.activeOrderCode
+    ? `${v.activeOrderCode} · ${v.activeOrderStage || 'Đang thực hiện'}${v.activeOrderEta ? ` · xong dự kiến ${v.activeOrderEta}` : ''}`
+    : statusBlocks
+      ? [statusLabel, v.statusReason, v.statusStartedAt ? `từ ${v.statusStartedAt}` : '', v.expectedReturnAt ? `về ${v.expectedReturnAt}` : ''].filter(Boolean).join(' · ')
+      : blockTags.map((tag) => tag.detail).join(' · ') || 'Đủ giấy tờ, công cụ, tài xế trực, GPS và bảo dưỡng';
 
   return {
     statusLabel,
@@ -105,15 +166,24 @@ export const fleetRowOf = (v: VehicleRecord, gpsLost: boolean): FleetRow => {
     maintDue: maintOver || maintSoon,
     maintLabel: MAINTENANCE_STATUS_LABEL[v.maintenanceStatus ?? 'NORMAL'],
     maintSub: v.maintenanceNextAt ? `Tiếp theo ${v.maintenanceNextAt}` : '',
+    maintKmText,
+    showDue: statusLabel !== 'Ngừng hoạt động',
     toolBad: broken.length > 0,
     toolLabel: broken.length ? `${broken.length} hỏng` : `Đủ ${v.tools.length}/${v.tools.length}`,
     toolSub: broken.length ? broken.map((t) => t.name).join(', ') : 'Đủ định mức',
     eligible,
     blocked,
-    eligText: eligible ? 'Đủ điều kiện nhận đơn' : blocked ? 'Chặn nhận đơn' : 'Không nhận đơn',
-    reasons: blocked ? reasons : [],
+    warned,
+    eligText: eligible ? 'Đủ điều kiện' : warned ? 'Cảnh báo' : 'Bị chặn',
+    gateTitle,
+    blockTags,
+    reasons,
     primaryName: v.driverId ? driverName(v.driverId) : '',
     secondaryNames: secondary.map((id) => driverName(id)).filter((name) => name !== 'Chưa gán').join(', '),
+    leadName: leadId ? driverName(leadId) : '',
+    deputyName: v.deputyDriverId ? driverName(v.deputyDriverId) : '',
+    onDutyName: onDutyId ? driverName(onDutyId) : '',
+    onDutyPresence,
   };
 };
 

@@ -12,6 +12,7 @@ import {
   Layers,
   Plus,
   Radio,
+  UserPlus,
   RotateCcw,
   Search,
   Trash2,
@@ -293,6 +294,13 @@ const PartnerVehicleList: React.FC = () => {
 
   // DLG-02: Điều chuyển xe
   const [transferOf, setTransferOf] = useState<VehicleRecord | null>(null);
+  const [transferTargets, setTransferTargets] = useState<VehicleRecord[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [reasonTip, setReasonTip] = useState<{ x: number; y: number; lines: { key: string; label: string; detail: string }[] } | null>(null);
+  const [bulkStopOpen, setBulkStopOpen] = useState(false);
+  const [assignOf, setAssignOf] = useState<VehicleRecord | null>(null);
+  const [assignLead, setAssignLead] = useState('');
+  const [assignDeputy, setAssignDeputy] = useState('');
   const [transferTo, setTransferTo] = useState('');
   const [transferReason, setTransferReason] = useState('');
   const [transferReturnAt, setTransferReturnAt] = useState('');
@@ -415,8 +423,11 @@ const PartnerVehicleList: React.FC = () => {
   };
 
   // DLG-02 Handlers
-  const handleOpenTransfer = (v: VehicleRecord) => {
-    setTransferOf(v);
+  const openTransfer = (list: VehicleRecord[]) => {
+    const targets = list.filter((v) => canTransferVehicle(v));
+    if (targets.length === 0) return;
+    setTransferTargets(targets);
+    setTransferOf(targets[0]);
     setTransferTo('');
     setTransferReason('');
     setTransferReturnAt('');
@@ -425,31 +436,73 @@ const PartnerVehicleList: React.FC = () => {
 
   const closeTransfer = () => {
     setTransferOf(null);
+    setTransferTargets([]);
     setTransferTo('');
     setTransferReason('');
   };
 
   const confirmTransfer = () => {
-    if (!transferOf || !transferTo || !transferReturnValid) return;
+    const targets = transferTargets.length ? transferTargets : transferOf ? [transferOf] : [];
+    if (targets.length === 0 || !transferTo || !transferReturnValid) return;
     const returnNote = transferReturnAt ? ` · về dự kiến ${new Date(transferReturnAt).toLocaleDateString('vi-VN')}` : '';
-    registerTransfer({
-      id: `t-${Date.now()}`,
-      vehicleId: transferOf.id,
-      fromStationId: transferOf.stationId,
-      toStationId: transferTo,
-      transferredAt: new Date().toLocaleString('vi-VN'),
-      byName: persona.title,
-      reason: (transferReason || 'Điều chuyển trạm') + returnNote,
+    const cleared = { stationId: transferTo, driverId: null, driverIds: [] as string[], leadDriverId: null, deputyDriverId: null };
+    targets.forEach((vehicle) => {
+      registerTransfer({
+        id: `t-${Date.now()}-${vehicle.id}`,
+        vehicleId: vehicle.id,
+        fromStationId: vehicle.stationId,
+        toStationId: transferTo,
+        transferredAt: new Date().toLocaleString('vi-VN'),
+        byName: persona.title,
+        reason: (transferReason || 'Điều chuyển trạm') + returnNote,
+      });
+      updateVehicle(vehicle.id, cleared);
     });
-    // BR-15: mọi tài xế đang ghép tự gỡ
-    updateVehicle(transferOf.id, { stationId: transferTo, driverId: null, driverIds: [] });
-    setVehicles((prev) =>
-      prev.map((v) =>
-        v.id === transferOf.id ? { ...v, stationId: transferTo, driverId: null, driverIds: [] } : v
-      )
-    );
-    triggerToast(`Đã điều chuyển xe ${transferOf.plate} tới ${orgName(transferTo)}`);
+    const ids = new Set(targets.map((v) => v.id));
+    setVehicles((prev) => prev.map((v) => (ids.has(v.id) ? { ...v, ...cleared } : v)));
+    setSelectedIds((prev) => prev.filter((id) => !ids.has(id)));
+    triggerToast(`Đã điều chuyển ${targets.length} xe tới ${orgName(transferTo)}`);
     closeTransfer();
+  };
+
+  const confirmBulkStop = () => {
+    const targets = visible.filter((v) => selectedIds.includes(v.id) && v.status !== 'WORKING' && v.status !== 'INACTIVE');
+    const started = new Date().toLocaleDateString('vi-VN');
+    const patch: Partial<VehicleRecord> = {
+      status: 'INACTIVE',
+      runStatus: 'active',
+      statusReason: 'Ngừng hàng loạt',
+      statusStartedAt: started,
+      statusChangedAt: new Date().toLocaleString('vi-VN'),
+      statusChangedBy: persona.title,
+    };
+    targets.forEach((vehicle) => updateVehicle(vehicle.id, patch));
+    const ids = new Set(targets.map((v) => v.id));
+    setVehicles((prev) => prev.map((v) => (ids.has(v.id) ? { ...v, ...patch } : v)));
+    setSelectedIds([]);
+    setBulkStopOpen(false);
+    triggerToast(`Đã ngừng ${targets.length} xe`);
+  };
+
+  const openAssign = (v: VehicleRecord) => {
+    setAssignOf(v);
+    setAssignLead(v.leadDriverId || v.driverId || '');
+    setAssignDeputy(v.deputyDriverId || '');
+  };
+
+  const confirmAssign = () => {
+    if (!assignOf || !assignLead) return;
+    const driverIds = Array.from(new Set([assignLead, assignDeputy].filter(Boolean)));
+    const patch: Partial<VehicleRecord> = {
+      leadDriverId: assignLead,
+      deputyDriverId: assignDeputy || null,
+      driverId: assignLead,
+      driverIds,
+    };
+    updateVehicle(assignOf.id, patch);
+    setVehicles((prev) => prev.map((v) => (v.id === assignOf.id ? { ...v, ...patch } : v)));
+    setAssignOf(null);
+    triggerToast(`Đã gán tài xế cho xe ${assignOf.plate}`);
   };
 
   // DLG-11 Handlers
@@ -486,8 +539,8 @@ const PartnerVehicleList: React.FC = () => {
   };
 
   // Export Excel
-  const handleExportExcel = () => {
-    const data = scoped.map((v, i) => ({
+  const handleExportExcel = (rows: VehicleRecord[] = scoped) => {
+    const data = rows.map((v, i) => ({
       STT: i + 1,
       'Biển số': v.plate,
       'Mã xe': v.hnl,
@@ -614,7 +667,7 @@ const PartnerVehicleList: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={handleExportExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50">
+          <button type="button" onClick={() => handleExportExcel()} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50">
             <Download size={15} />
             Xuất Excel
           </button>
@@ -694,23 +747,38 @@ const PartnerVehicleList: React.FC = () => {
         <SectionHeader
           title={`KẾT QUẢ TÌM KIẾM (${visible.length})`}
           rightNode={
-            <span className="text-[11px] font-normal lowercase tracking-normal">
-              Hiển thị phân trang 10 / 20 / 50 xe
-            </span>
+            selectedIds.length > 0 ? (
+              <span className="flex flex-wrap items-center gap-1.5 normal-case tracking-normal">
+                <span className="text-[11px] font-semibold text-gray-600">Đã chọn {selectedIds.length}</span>
+                <button type="button" onClick={() => openTransfer(visible.filter((v) => selectedIds.includes(v.id)))} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-semibold text-gray-800">Điều chuyển trạm</button>
+                <button type="button" onClick={() => handleExportExcel(visible.filter((v) => selectedIds.includes(v.id)))} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-semibold text-gray-800">Xuất Excel</button>
+                <button type="button" onClick={() => setBulkStopOpen(true)} className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700">Ngừng hàng loạt</button>
+              </span>
+            ) : (
+              <span className="text-[11px] font-normal lowercase tracking-normal">Chọn nhiều xe để điều chuyển, xuất Excel hoặc ngừng</span>
+            )
           }
         />
         <div className="w-full overflow-x-auto">
-          <table className="w-full text-xs border-collapse min-w-[1080px]">
+          <table className="w-full text-xs border-collapse min-w-[1480px]">
             <thead>
               <tr className="bg-gray-50 border-b text-gray-600">
+                <th className="px-2 py-2.5 text-center w-8 font-bold border-r">
+                  <input
+                    type="checkbox"
+                    checked={visible.length > 0 && visible.every((v) => selectedIds.includes(v.id))}
+                    onChange={(e) => setSelectedIds(e.target.checked ? visible.map((v) => v.id) : [])}
+                    className="accent-[#00A859]"
+                    aria-label="Chọn tất cả xe"
+                  />
+                </th>
                 <th className="px-2.5 py-2.5 text-center w-10 font-bold border-r">STT</th>
-                <th className="px-2.5 py-2.5 text-center w-24 font-bold border-r">Thao tác</th>
+                <th className="px-2.5 py-2.5 text-center w-28 font-bold border-r">Thao tác</th>
                 <th className="px-3 py-2.5 text-left font-bold border-r">Xe</th>
                 <th className="px-3 py-2.5 text-left font-bold border-r">Vị trí gần nhất</th>
                 <th className="px-3 py-2.5 text-left font-bold border-r">Trạm</th>
                 <th className="px-3 py-2.5 text-left font-bold border-r">Loại</th>
                 <th className="px-3 py-2.5 text-left font-bold border-r">Tải trọng</th>
-                <th className="px-3 py-2.5 text-center font-bold border-r">Ngày đăng ký</th>
                 <th className="px-3 py-2.5 text-left font-bold border-r">Tài xế</th>
                 <th className="px-2.5 py-2.5 text-center font-bold border-r">Tình trạng</th>
                 <th className="px-2.5 py-2.5 text-left font-bold border-r">Nhắc hạn</th>
@@ -723,7 +791,20 @@ const PartnerVehicleList: React.FC = () => {
                 const brokenTools = v.tools.filter((t) => !toolReady(t));
                 const brokenCount = brokenTools.length;
                 const gps = getGpsStatusForVehicle(v);
-                const statusLabel = statusLabelOf(v);
+                const locationAddress = gps.signal.address?.trim() ?? '';
+                const locationUnknown = !locationAddress || locationAddress === '—';
+                const row = fleetRowOf(v, gps.signal.signalLost);
+                const statusLabel = row.statusLabel;
+                const ownerTone = v.ownership === 'Thuê'
+                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                  : v.ownership === 'Đối tác vệ tinh'
+                    ? 'border-sky-200 bg-sky-50 text-sky-800'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                const dutyTone = row.onDutyPresence === 'Online'
+                  ? 'text-emerald-700'
+                  : row.onDutyPresence === 'Nghỉ'
+                    ? 'text-gray-500'
+                    : 'text-amber-700';
                 const statusBadgeStyle =
                   statusLabel === 'Sẵn sàng'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
@@ -737,12 +818,26 @@ const PartnerVehicleList: React.FC = () => {
 
                 return (
                   <tr key={v.id} className="hover:bg-gray-50/80 align-top transition-colors">
+                    <td className="px-2 py-3 text-center border-r">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(v.id)}
+                        onChange={(e) => setSelectedIds((prev) => e.target.checked ? [...prev, v.id] : prev.filter((id) => id !== v.id))}
+                        className="accent-[#00A859]"
+                        aria-label={`Chọn xe ${v.plate}`}
+                      />
+                    </td>
                     <td className="px-2.5 py-3 text-center border-r text-gray-500 font-medium">{index + 1}</td>
                     <td className="px-2.5 py-3 border-r">
                       <div className="flex items-center justify-center gap-2">
                         {canTransferVehicle(v) && (
-                          <button type="button" onClick={() => handleOpenTransfer(v)} className="text-emerald-600 hover:bg-emerald-50 p-1 rounded transition" title="Điều chuyển xe">
+                          <button type="button" onClick={() => openTransfer([v])} className="text-emerald-600 hover:bg-emerald-50 p-1 rounded transition" title="Điều chuyển xe">
                             <ArrowRightLeft size={16} />
+                          </button>
+                        )}
+                        {canEditVehicle && (
+                          <button type="button" onClick={() => openAssign(v)} className="text-[#00A859] hover:bg-emerald-50 p-1 rounded transition" title="Gán tài xế">
+                            <UserPlus size={16} />
                           </button>
                         )}
                         <button type="button" onClick={() => openDetail(v.id)} className="text-amber-500 hover:bg-amber-50 p-1 rounded transition" title="Xem chi tiết xe">
@@ -754,48 +849,79 @@ const PartnerVehicleList: React.FC = () => {
                       <button type="button" onClick={() => openDetail(v.id)} className="font-bold text-gray-900 hover:text-[#00A859] transition-colors text-xs text-left">
                         {v.plate}
                       </button>
-                      <div className="text-[11px] text-gray-400 mt-0.5">Mã {v.hnl} · {v.brand} {v.modelLine}</div>
+                      <div className="mt-0.5 text-[11px] text-gray-400">Mã {v.hnl} · {v.brand} {v.modelLine}</div>
+                      <span className={`mt-1 inline-flex rounded border px-1.5 py-0.5 text-[10px] font-bold ${ownerTone}`}>{v.ownership || 'Công ty'}</span>
                     </td>
                     <td className="px-3 py-3 border-r">
-                      <div className="font-medium text-gray-800 text-[11px] truncate max-w-[170px]" title={gps.signal.address || orgName(v.stationId)}>
-                        {gps.signal.address || orgName(v.stationId)}
+                      <div
+                        className={`font-medium text-[11px] truncate max-w-[170px] ${locationUnknown ? 'text-red-600' : 'text-gray-800'}`}
+                        title={locationUnknown ? 'Không xác định' : locationAddress}
+                      >
+                        {locationUnknown ? 'Không xác định' : locationAddress}
                       </div>
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${gps.signal.signalLost ? 'bg-red-500' : 'bg-emerald-500'}`} />
                         <span className="text-[10px] text-gray-500">{gps.signal.signalLost ? 'Mất tín hiệu' : 'Cập nhật 5 phút trước'}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 border-r font-medium text-gray-700">
-                      <div>{orgName(v.stationId)}</div>
-                      {v.expectedReturnAt && (
-                        <div className="text-[10px] text-amber-600 mt-0.5 font-normal">về {new Date(v.expectedReturnAt).toLocaleDateString('vi-VN')}</div>
-                      )}
-                    </td>
+                    <td className="px-3 py-3 border-r font-medium text-gray-700">{orgName(v.stationId)}</td>
                     <td className="px-3 py-3 border-r text-gray-600">{VEHICLE_TYPE_LABEL[v.type]}</td>
                     <td className="px-3 py-3 border-r text-gray-700">
                       <div className="font-semibold">{v.loadCarry || '—'}</div>
                       {v.loadCrane && v.loadCrane !== '—' && <div className="text-[10px] text-gray-400">Cẩu: {v.loadCrane}</div>}
                     </td>
-                    <td className="px-3 py-3 border-r text-center tabular-nums text-gray-700">{v.registrationDate || '—'}</td>
-                    <td className="px-3 py-3 border-r text-gray-800 font-medium">{driverNames(v.driverIds, v.driverId)}</td>
+                    <td className="px-3 py-3 border-r text-[11px] text-gray-700">
+                      <div>Quản lý: <span className="font-semibold text-gray-900">{row.leadName || 'Chưa gán'}</span></div>
+                      <div>Phụ: <span className="font-semibold text-gray-900">{row.deputyName || '—'}</span></div>
+                      <div className="mt-1">
+                        Đang trực: <span className="font-semibold text-gray-900">{row.onDutyName || 'Không có'}</span>
+                        {row.onDutyPresence && <span className={`ml-1 font-bold ${dutyTone}`}>{row.onDutyPresence}</span>}
+                      </div>
+                    </td>
                     <td className="px-2.5 py-3 border-r text-center">
                       <button
                         type="button"
                         disabled={!canChangeStatusOf(v)}
                         onClick={() => canChangeStatusOf(v) && handleOpenStatusModal(v)}
                         className={`inline-flex flex-col items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition ${statusBadgeStyle}`}
-                        title={canChangeStatusOf(v) ? 'Bấm để đổi trạng thái xe' : 'Chỉ xem'}
+                        onMouseEnter={(e) => {
+                          const box = e.currentTarget.getBoundingClientRect();
+                          const lines = [
+                            ...(v.status === 'WORKING'
+                              ? [
+                                  { key: 'order', label: 'Mã đơn', detail: v.activeOrderCode || 'Chưa gắn' },
+                                  { key: 'stage', label: 'Chặng', detail: v.activeOrderStage || 'Chưa có' },
+                                  { key: 'eta', label: 'Xong dự kiến', detail: v.activeOrderEta || '—' },
+                                ]
+                              : []),
+                            ...(v.status === 'MAINTENANCE' || v.status === 'STOPPED'
+                              ? [
+                                  { key: 'reason', label: 'Lý do', detail: v.statusReason || 'Chưa có lý do' },
+                                  { key: 'from', label: 'Từ', detail: v.statusStartedAt || '—' },
+                                  { key: 'back', label: 'Về', detail: v.expectedReturnAt || '—' },
+                                ]
+                              : []),
+                            ...row.blockTags.map((tag) => ({ key: tag.key, label: tag.label, detail: tag.detail })),
+                          ];
+                          setReasonTip({ x: box.left + box.width / 2, y: box.bottom + 6, lines });
+                        }}
+                        onMouseLeave={() => setReasonTip(null)}
                       >
                         <span>{statusLabel}</span>
                       </button>
                     </td>
                     <td className="px-2.5 py-3 border-r">
-                      {worstDue < 0 ? (
+                      {!row.showDue ? (
+                        <span className="text-gray-400">—</span>
+                      ) : worstDue < 0 ? (
                         <span className="font-bold text-red-600">Quá hạn {Math.abs(worstDue)} ngày</span>
                       ) : worstDue <= 30 ? (
                         <span className="font-bold text-amber-600">Còn {worstDue} ngày</span>
                       ) : (
                         <span className="text-gray-600 font-medium">Còn {worstDue} ngày</span>
+                      )}
+                      {row.showDue && row.maintKmText && (
+                        <div className="mt-1 text-[10px] font-medium text-gray-500">{row.maintKmText}</div>
                       )}
                     </td>
                     <td className="px-2.5 py-3 font-bold">
@@ -823,10 +949,31 @@ const PartnerVehicleList: React.FC = () => {
         </div>
       </div>
 
+      {reasonTip && (
+        <div
+          className="pointer-events-none fixed z-[80] w-64 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-2.5 text-left shadow-lg"
+          style={{ left: reasonTip.x, top: reasonTip.y }}
+        >
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">Lý do</div>
+          {reasonTip.lines.length === 0 ? (
+            <p className="text-[11px] text-gray-500">Không có lý do chặn</p>
+          ) : (
+            <ul className="space-y-1">
+              {reasonTip.lines.map((line) => (
+                <li key={line.key} className="text-[11px] leading-4 text-gray-700">
+                  <span className="font-bold text-gray-900">{line.label}: </span>
+                  {line.detail}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* DLG-02: MODAL ĐIỀU CHUYỂN XE */}
       <PartnerModal
         open={!!transferOf}
-        title={`Điều chuyển xe — ${transferOf?.plate ?? ''}`}
+        title={transferTargets.length > 1 ? `Điều chuyển ${transferTargets.length} xe` : `Điều chuyển xe — ${transferOf?.plate ?? ''}`}
         icon={<ArrowRightLeft size={20} />}
         onClose={closeTransfer}
         footer={(
@@ -850,7 +997,7 @@ const PartnerVehicleList: React.FC = () => {
             <div>
               <span className="text-gray-500 block text-[11px]">Phương tiện:</span>
               <strong className="text-gray-900 font-bold text-sm">
-                {transferOf?.plate} (Mã {transferOf?.hnl})
+                {transferTargets.length > 1 ? transferTargets.map((v) => v.plate).join(', ') : `${transferOf?.plate} (Mã ${transferOf?.hnl})`}
               </strong>
             </div>
             <div className="text-right">
@@ -1241,6 +1388,57 @@ const PartnerVehicleList: React.FC = () => {
             </div>
           )}
         </div>
+      </PartnerModal>
+
+      <PartnerModal
+        open={!!assignOf}
+        title={`Gán tài xế — ${assignOf?.plate ?? ''}`}
+        icon={<UserPlus size={20} />}
+        onClose={() => setAssignOf(null)}
+        footer={(
+          <>
+            <button type="button" onClick={() => setAssignOf(null)} className={partnerBtnNeutral}>Hủy</button>
+            <button type="button" disabled={!assignLead} onClick={confirmAssign} className={`${partnerBtnBrand} disabled:opacity-50`}>Lưu gán tài xế</button>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <div>
+            <label className={partnerLabelClass}>Tài xế quản lý</label>
+            <select value={assignLead} onChange={(e) => setAssignLead(e.target.value)} className={inputClass}>
+              <option value="">Chọn tài xế</option>
+              {PARTNER_STAFF.filter((s) => (s.role === 'NVCH' || s.role === 'GDTT') && (!assignOf || s.stationId === assignOf.stationId)).map((s) => (
+                <option key={s.id} value={s.id}>{s.fullname}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={partnerLabelClass}>Tài xế quản lý phụ</label>
+            <select value={assignDeputy} onChange={(e) => setAssignDeputy(e.target.value)} className={inputClass}>
+              <option value="">Không chọn</option>
+              {PARTNER_STAFF.filter((s) => (s.role === 'NVCH' || s.role === 'GDTT') && s.id !== assignLead && (!assignOf || s.stationId === assignOf.stationId)).map((s) => (
+                <option key={s.id} value={s.id}>{s.fullname}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </PartnerModal>
+
+      <PartnerModal
+        open={bulkStopOpen}
+        title="Ngừng hàng loạt"
+        icon={<AlertTriangle size={20} className="text-red-500" />}
+        onClose={() => setBulkStopOpen(false)}
+        footer={(
+          <>
+            <button type="button" onClick={() => setBulkStopOpen(false)} className={partnerBtnNeutral}>Hủy</button>
+            <button type="button" onClick={confirmBulkStop} className="flex-1 inline-flex items-center justify-center min-h-12 px-4 rounded-xl border-0 bg-[#da2c39] text-base font-semibold text-white">Ngừng hoạt động</button>
+          </>
+        )}
+      >
+        <p className="text-sm text-gray-700">
+          Ngừng {visible.filter((v) => selectedIds.includes(v.id) && v.status !== 'WORKING' && v.status !== 'INACTIVE').length} xe đã chọn. Xe đang làm đơn được giữ nguyên.
+        </p>
       </PartnerModal>
     </div>
   );

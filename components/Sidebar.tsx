@@ -76,6 +76,7 @@ const GROUP_PATHS: Record<string, string[]> = {
     '/rescue-supervision',
     '/supporting',
     '/partner/resource-board',
+    '/partner/fleet-capacity',
   ],
   orders: [
     '/station/create',
@@ -144,6 +145,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (path === '/rescue-supervision') return location.pathname === '/rescue-supervision';
     if (path === '/supporting') return location.pathname === '/supporting';
     if (path === '/partner/resource-board') return location.pathname === '/partner/resource-board';
+    if (path === '/partner/fleet-capacity') return location.pathname === '/partner/fleet-capacity';
     if (path === '/station/create') {
       return (
         location.pathname === '/station/create' ||
@@ -460,6 +462,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             '/rescue-supervision',
             '/supporting',
             '/partner/resource-board',
+            '/partner/fleet-capacity',
           ])}
           {isGroupOpen('monitoring') && (
             <div className="space-y-0.5 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
@@ -474,6 +477,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 badge: 'FL-M1-11',
                 badgeColor: 'bg-blue-50 text-blue-700 font-semibold',
               })}
+              {renderNavItem('/partner/fleet-capacity', 'Năng lực nhận đơn', BarChart3)}
             </div>
           )}
         </div>

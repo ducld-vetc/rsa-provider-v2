@@ -45,6 +45,7 @@ import PartnerStaffDetail from './pages/PartnerStaffDetail';
 import PartnerReports from './pages/PartnerReports';
 import PartnerOrgConfig from './pages/PartnerOrgConfig';
 import PartnerResourceBoard from './pages/PartnerResourceBoard';
+import PartnerFleetCapacity from './pages/PartnerFleetCapacity';
 import PartnerMaintenance from './pages/PartnerMaintenance';
 import StationCoverageReport from './pages/station-coverage/StationCoverageReport';
 import RescueProviderList from './pages/rescue-partner-admin/RescueProviderList';
@@ -128,6 +129,7 @@ const App: React.FC = () => {
     if (path.includes('/partner/maintenance')) return Step.PARTNER_MAINTENANCE;
     if (path.includes('/partner/tool-config') || path.includes('/partner/vehicle-tools')) return Step.PARTNER_TOOL_CONFIG;
     if (path.includes('/partner/staff')) return Step.PARTNER_STAFF;
+    if (path.includes('/partner/fleet-capacity')) return Step.PARTNER_FLEET_CAPACITY;
     if (path.includes('/partner/resource-board')) return Step.PARTNER_RESOURCE_BOARD;
     if (path.includes('/partner/shift-config')) return Step.PARTNER_SHIFT_CONFIG;
     if (path.includes('/partner/shift-schedule')) return Step.PARTNER_SHIFT_SCHEDULE;
@@ -454,6 +456,7 @@ const App: React.FC = () => {
     Step.RESCUE_FEE_CONFIGURATION,
     Step.RESCUE_FEE_CRITERIA,
     Step.PARTNER_VEHICLES,
+    Step.PARTNER_FLEET_CAPACITY,
     Step.PARTNER_MAINTENANCE,
     Step.PARTNER_TOOL_CONFIG,
     Step.PARTNER_STAFF,
@@ -473,6 +476,7 @@ const App: React.FC = () => {
     if (currentStep === Step.RESCUE_SUPERVISION) return ['Giám sát & Điều phối', 'Giám sát trực tiếp'];
     if (currentStep === Step.SUPPORTING) return ['Giám sát & Điều phối', 'Đơn đang cứu hộ'];
     if (currentStep === Step.PARTNER_RESOURCE_BOARD) return ['Giám sát & Điều phối', 'Bảng nguồn lực xe & tài xế'];
+    if (currentStep === Step.PARTNER_FLEET_CAPACITY) return ['Giám sát & Điều phối', 'Năng lực nhận đơn'];
     if (currentStep === Step.STATION_CREATE) return ['Quản lý đơn cứu hộ', 'Tạo đơn cứu hộ'];
     if (currentStep === Step.APP_QUICK_CREATE) return ['Quản lý đơn cứu hộ', 'Tạo nhanh App (FL-M3-04)'];
     if (currentStep === Step.STATION_MANAGEMENT) return ['Quản lý đơn cứu hộ', 'Danh sách đơn cứu hộ'];
@@ -840,6 +844,7 @@ const App: React.FC = () => {
                 <Route path="/partner/staff/:id" element={<PartnerStaffDetail key="staff-detail" />} />
                 <Route path="/partner/staff" element={<PartnerStaff />} />
                 <Route path="/partner/resource-board" element={<PartnerResourceBoard />} />
+                <Route path="/partner/fleet-capacity" element={<PartnerFleetCapacity />} />
                 <Route path="/partner/quick-order" element={<AppQuickCreateOrder />} />
                 <Route path="/app/quick-create" element={<AppQuickCreateOrder />} />
                 <Route path="/partner/shift-config" element={<ShiftDefinitionManagement />} />
