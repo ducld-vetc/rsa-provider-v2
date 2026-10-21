@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowRightLeft,
   Check,
   ClipboardList,
@@ -11,9 +10,7 @@ import {
   KeyRound,
   Lock,
   Pencil,
-  Plus,
   Shield,
-  Trash2,
   Truck,
   Unlock,
   UserRound,
@@ -33,7 +30,6 @@ import {
   type StaffRole,
   hasFieldBlocks,
   staffRoleLabel,
-  SKILL_LEVEL_LABEL,
   STAFF_DOC_TYPES,
   STAFF_DUTY_STATUS_LABEL,
   STAFF_LOG_KIND_LABEL,
@@ -68,7 +64,6 @@ import {
   type PartnerRole,
   type PartnerStaffRecord,
   type StaffDocument,
-  type SkillLevel,
   type StaffDutyStatus,
   type StaffSkill,
   type StaffTransferHistory,
@@ -77,9 +72,6 @@ import {
 } from '../data/partnerRescueMockData';
 
 const emptyDoc = { name: '', type: 'Bằng lái', number: '', docClass: 'C', issuedAt: '', expiryAt: '', fileName: '', fileUrl: '' };
-
-/** Dịch vụ trạm đăng ký (mock) — nguồn kỹ năng (FL-M2-01 BR-13) */
-const STATION_SERVICES = ['Kéo xe', 'Cứu hộ lốp', 'Kích bình ắc quy', 'Mở khóa xe', 'Tiếp nhiên liệu', 'Sửa chữa tại chỗ'];
 
 /** Kỹ năng mẫu khi chưa khai báo */
 const defaultSkillsOf = (s: Pick<PartnerStaffRecord, 'role' | 'skills'>): StaffSkill[] =>
@@ -112,14 +104,71 @@ const syncLicenseFields = (docs: StaffDocument[]): Pick<PartnerStaffRecord, 'lic
   };
 };
 
-const Section: React.FC<{ title: string; number: number; icon?: React.ReactNode; children: React.ReactNode }> = ({
+const STAFF_SECTION_TABS: { id: string; label: string; icon: React.FC<{ size?: number }>; hideOnCreate?: boolean }[] = [
+  { id: 'sec-info', label: 'Thông tin nhân viên', icon: UserRound },
+  { id: 'sec-account', label: 'Tài khoản EIM', icon: KeyRound },
+  { id: 'sec-docs', label: 'Giấy tờ và Chứng chỉ', icon: FileText },
+  { id: 'sec-vehicles', label: 'Phương tiện đang phụ trách', icon: Truck, hideOnCreate: true },
+  { id: 'sec-audit', label: 'Nhật ký', icon: ClipboardList, hideOnCreate: true },
+];
+
+const StaffSectionTabs: React.FC<{ isCreate: boolean }> = ({ isCreate }) => {
+  const tabs = STAFF_SECTION_TABS.filter((tab) => !(isCreate && tab.hideOnCreate));
+  const [active, setActive] = useState(tabs[0]?.id ?? '');
+  const tabKey = tabs.map((tab) => tab.id).join('|');
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === active)) setActive(tabs[0]?.id ?? '');
+    const nodes = tabs
+      .map((tab) => document.getElementById(tab.id))
+      .filter((node): node is HTMLElement => Boolean(node));
+    if (!nodes.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (hit?.target.id) setActive(hit.target.id);
+      },
+      { rootMargin: '-12% 0px -65% 0px', threshold: [0.15, 0.4] },
+    );
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [tabKey]);
+
+  return (
+    <div className="flex items-center overflow-x-auto border-t bg-gray-50/50 px-4">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const on = active === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setActive(tab.id);
+              document.getElementById(tab.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            className={`flex items-center space-x-2 whitespace-nowrap border-b-2 px-4 py-3 text-xs font-bold transition-all ${on ? 'border-vetc-green bg-green-50/50 text-vetc-green' : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
+          >
+            <Icon size={14} />
+            <span>{tab.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+const Section: React.FC<{ title: string; number: number; icon?: React.ReactNode; id?: string; children: React.ReactNode }> = ({
   title,
   number,
   icon,
+  id,
   children,
 }) => (
-  <section className="overflow-hidden rounded-lg border bg-white shadow-sm">
-    <div className="flex items-center justify-between rounded-t-lg bg-vetc-green px-4 py-2 text-sm font-bold text-white">
+  <section id={id} className="relative mb-4 scroll-mt-40 overflow-hidden rounded-lg border bg-white shadow-sm">
+    <div className="flex items-center justify-between rounded-t-lg bg-[#00A859] px-4 py-2.5 text-sm font-bold text-white">
       <div className="flex items-center space-x-2">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[10px]">{number}</span>
         <span>{title}</span>
@@ -167,18 +216,7 @@ const usernameOf = (s: PartnerStaffRecord | string) => staffUsername(s);
 const emailOf = (s: Pick<PartnerStaffRecord, 'code' | 'email'> & Partial<PartnerStaffRecord>) =>
   s.email || (s.username ? `${s.username}@carpla.vn` : `${staffUsername(s as any)}@carpla.vn`);
 
-const defaultCreateDocs = (): StaffDocument[] => [
-  {
-    id: `sd-${Date.now()}`,
-    name: 'Bằng lái hạng C',
-    type: 'Bằng lái',
-    number: '010100000000',
-    docClass: 'C',
-    issuedAt: '01/01/2024',
-    expiryAt: '01/01/2034',
-    fileName: 'bang-lai.pdf',
-  },
-];
+const defaultCreateDocs = (): StaffDocument[] => [];
 
 const PartnerStaffDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -202,6 +240,7 @@ const PartnerStaffDetail: React.FC = () => {
   const [docFile, setDocFile] = useState<File | null>(null);
   const [previewDoc, setPreviewDoc] = useState<StaffDocument | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
+  const [reset2faOpen, setReset2faOpen] = useState(false);
   const [retryOpen, setRetryOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -418,8 +457,7 @@ const PartnerStaffDetail: React.FC = () => {
   // A4.1, A4.2: ẩn / hiện hành động theo quyền + trạng thái
   const canUpdate = canEdit && workStatus !== 'left';
   const canResetPassword = canEdit && staff.hasAccount && !staff.accountLocked && workStatus !== 'left';
-  const canLock = canEdit && staff.hasAccount && !staff.accountLocked;
-  const canUnlock = canEdit && staff.hasAccount && !!staff.accountLocked && workStatus !== 'left';
+  const canReset2fa = canResetPassword && !!staff.mfaEnabled;
   const canGrantAccount = canEdit && !staff.hasAccount && workStatus === 'active';
   const canTransfer = canEdit && workStatus === 'active' && !!staff.stationId;
   const showFullCccd = canEdit || isCreate;
@@ -548,9 +586,8 @@ const PartnerStaffDetail: React.FC = () => {
     const cccd = editForm.cccd.trim();
     if (cccd && cccd !== '—' && !/^\d{12}$/.test(cccd)) errs.push('CCCD phải gồm 12 chữ số');
     if (!editForm.contractType.trim()) errs.push('Vui lòng chọn loại hợp đồng');
-    if (editForm.role === 'NVCH') {
-      if (!docs.some((d) => d.type === 'Bằng lái')) errs.push('Tài xế phải khai báo bằng lái');
-      if (editForm.skills.length === 0) errs.push('Tài xế phải có ít nhất một dịch vụ');
+    if (editForm.role === 'NVCH' && !docs.some((d) => d.type === 'Bằng lái')) {
+      errs.push('Tài xế phải khai báo bằng lái');
     }
     setFormErrors(errs);
     if (errs.length > 0) {
@@ -716,7 +753,168 @@ const PartnerStaffDetail: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-in fade-in duration-300 w-full min-w-0 max-w-full pb-10">
+      <div className="sticky top-0 z-20 flex flex-col rounded-xl border border-l-4 border-l-vetc-green bg-white/95 text-left shadow-md backdrop-blur-md">
+        <div className="flex items-center justify-between gap-3 p-4">
+          <div className="flex min-w-0 items-center space-x-6">
+            <div className="flex min-w-0 flex-col">
+              <button
+                type="button"
+                onClick={() => navigate('/partner/staff')}
+                className="mb-0.5 text-left text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-vetc-green"
+              >
+                {isCreate ? 'Thêm mới nhân viên' : 'Nhân viên'}
+              </button>
+              <div className="flex items-center space-x-2">
+                <span className="truncate text-xl font-black tracking-tight text-gray-900">
+                  {isCreate ? (editForm.fullname || 'Nhân viên mới') : staff.fullname}
+                </span>
+                {!isCreate && (
+                  <span className="rounded border border-green-100 bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-green-600">
+                    Mã {code}
+                  </span>
+                )}
+              </div>
+            </div>
+            {!isCreate && (
+              <>
+                <div className="hidden h-10 w-px bg-gray-100 md:block" />
+                <div className="flex flex-col">
+                  <span className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-gray-400">Trạng thái hiện tại</span>
+                  {editing && workStatus !== 'left' ? (
+                    <select
+                      value={shown.workStatus}
+                      onChange={(e) => setEditForm({ ...editForm, workStatus: e.target.value as StaffWorkStatus })}
+                      className={`w-fit cursor-pointer appearance-none rounded-full border px-3 py-1.5 text-left text-[11px] font-bold outline-none ${workStatusBadgeClass(shown.workStatus)}`}
+                      title="Chọn khác Hoạt động sẽ mở hộp thoại Vô hiệu hóa khi Lưu"
+                    >
+                      {(Object.keys(STAFF_WORK_STATUS_LABEL) as StaffWorkStatus[]).map((k) => (
+                        <option key={k} value={k}>{STAFF_WORK_STATUS_LABEL[k]}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!canEdit || workStatus === 'left'}
+                      onClick={() => canEdit && workStatus !== 'left' && openStatusModal()}
+                      className={`inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-bold ${
+                        canEdit && workStatus !== 'left' ? 'hover:opacity-80' : 'cursor-default'
+                      } ${workStatusBadgeClass(workStatus)}`}
+                      title={canEdit && workStatus !== 'left' ? 'Bấm để đổi trạng thái nhân sự' : undefined}
+                    >
+                      <span className={`mr-2 h-1.5 w-1.5 animate-pulse rounded-full ${
+                        workStatus === 'active' ? 'bg-emerald-500' : workStatus === 'paused' ? 'bg-amber-500' : 'bg-gray-400'
+                      }`} />
+                      {STAFF_WORK_STATUS_LABEL[workStatus]}
+                    </button>
+                  )}
+                </div>
+                {isDriver && (
+                  <>
+                    <div className="hidden h-10 w-px bg-gray-100 md:block" />
+                    <div className="flex flex-col" title="Chỉ xem — tính từ ca đang diễn ra và trạng thái Online">
+                      <span className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-gray-400">Sẵn sàng ca</span>
+                      <span className={`inline-flex min-w-[168px] items-center justify-center whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-bold ${dutyBadgeClass(dutyStatus ?? 'offline')}`}>
+                        {STAFF_DUTY_STATUS_LABEL[dutyStatus ?? 'offline']}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {(isCreate || editing) ? (
+              <>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="flex items-center space-x-2 rounded-lg border-2 border-gray-400 px-6 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50"
+                >
+                  <X size={14} />
+                  <span>Hủy</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => confirmEdit()}
+                  className="flex items-center space-x-2 rounded-lg bg-vetc-green px-6 py-2 text-xs font-bold text-white shadow-lg hover:bg-green-700"
+                >
+                  <Check size={14} />
+                  <span>{isCreate ? 'Thêm mới' : 'Lưu thay đổi'}</span>
+                </button>
+              </>
+            ) : (
+              canEdit && (
+                <>
+                  {canResetPassword && (
+                    <button
+                      type="button"
+                      onClick={() => setResetOpen(true)}
+                      className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                    >
+                      <KeyRound size={14} />
+                      <span>Reset mật khẩu</span>
+                    </button>
+                  )}
+                  {canReset2fa && (
+                    <button
+                      type="button"
+                      onClick={() => setReset2faOpen(true)}
+                      className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                    >
+                      <Shield size={14} />
+                      <span>Reset 2FA</span>
+                    </button>
+                  )}
+                  {canGrantAccount && (
+                    <button
+                      type="button"
+                      onClick={() => setRetryOpen(true)}
+                      className="flex items-center space-x-2 rounded-lg border-2 border-amber-400 px-4 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50"
+                    >
+                      <KeyRound size={14} />
+                      <span>Cấp tài khoản</span>
+                    </button>
+                  )}
+                  {canTransfer && (
+                    <button
+                      type="button"
+                      onClick={() => setTransferOpen(true)}
+                      className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                    >
+                      <ArrowRightLeft size={14} />
+                      <span>Điều chuyển</span>
+                    </button>
+                  )}
+                  {canEdit && workStatus !== 'left' && (
+                    <button
+                      type="button"
+                      onClick={openStatusModal}
+                      className="flex items-center space-x-2 rounded-lg border-2 border-amber-500 px-4 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50"
+                      title="Đổi trạng thái nhân sự"
+                    >
+                      <Clock size={14} />
+                      <span>Đổi trạng thái</span>
+                    </button>
+                  )}
+                  {canUpdate && (
+                    <button
+                      type="button"
+                      onClick={openEdit}
+                      className="flex items-center space-x-2 rounded-lg bg-vetc-green px-6 py-2 text-xs font-bold text-white shadow-lg hover:bg-green-700"
+                    >
+                      <Pencil size={14} />
+                      <span>Cập nhật</span>
+                    </button>
+                  )}
+                </>
+              )
+            )}
+          </div>
+        </div>
+        <StaffSectionTabs isCreate={isCreate} />
+      </div>
+
       <PartnerScopeBar persona={persona} onChange={setPersona} />
       {editing && formErrors.length > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
@@ -724,157 +922,6 @@ const PartnerStaffDetail: React.FC = () => {
           <ul className="list-disc pl-5 space-y-0.5">{formErrors.map((er) => <li key={er}>{er}</li>)}</ul>
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate('/partner/staff')}
-            className="inline-flex items-center gap-1 text-[12px] font-bold text-gray-500 hover:text-[#00A859] transition"
-          >
-            <ArrowLeft size={14} /> Danh sách nhân viên
-          </button>
-          {!isCreate ? (
-            <>
-              <span className="text-gray-300">/</span>
-              <span className="text-xs font-bold text-gray-800">
-                {editing ? `Cập nhật: ${staff.fullname}` : `Chi tiết: ${staff.fullname} (${code})`}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="text-gray-300">/</span>
-              <span className="text-xs font-bold text-gray-800">Thêm mới nhân viên</span>
-            </>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Trạng thái HĐ & Sẵn sàng ca (Sẵn sàng ca chỉ xem — tính từ ca + Online) */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm text-xs">
-              <span className="text-gray-600 text-[11px] font-bold">Trạng thái HĐ:</span>
-              {editing && !isCreate && workStatus !== 'left' ? (
-                <select
-                  value={shown.workStatus}
-                  onChange={(e) => setEditForm({ ...editForm, workStatus: e.target.value as StaffWorkStatus })}
-                  className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs font-semibold text-gray-800 focus:border-[#00A859] focus:outline-none"
-                  title="Chọn khác Hoạt động sẽ mở hộp thoại Vô hiệu hóa khi Lưu"
-                >
-                  {(Object.keys(STAFF_WORK_STATUS_LABEL) as StaffWorkStatus[]).map((k) => (
-                    <option key={k} value={k}>{STAFF_WORK_STATUS_LABEL[k]}</option>
-                  ))}
-                </select>
-              ) : !editing && !isCreate ? (
-                <button
-                  type="button"
-                  disabled={!canEdit || workStatus === 'left'}
-                  onClick={() => canEdit && workStatus !== 'left' && openStatusModal()}
-                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-black transition ${
-                    canEdit && workStatus !== 'left' ? 'cursor-pointer hover:shadow-sm' : 'cursor-default'
-                  } ${workStatusBadgeClass(workStatus)}`}
-                  title={canEdit && workStatus !== 'left' ? 'Bấm để đổi trạng thái nhân sự (DLG-04)' : undefined}
-                >
-                  {STAFF_WORK_STATUS_LABEL[workStatus]}
-                </button>
-              ) : (
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-black ${workStatusBadgeClass(isCreate ? 'active' : workStatus)}`}>
-                  {STAFF_WORK_STATUS_LABEL[isCreate ? 'active' : workStatus]}
-                </span>
-              )}
-            </div>
-
-            {isDriver && !isCreate && (
-              <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm text-xs" title="Chỉ xem — tính từ ca đang diễn ra và trạng thái Online">
-                <span className="text-gray-500 text-[11px] font-bold">Sẵn sàng ca:</span>
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black ${dutyBadgeClass(dutyStatus ?? 'offline')}`}>
-                  {STAFF_DUTY_STATUS_LABEL[dutyStatus ?? 'offline']}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Khối Button: điều chuyển, đổi trạng thái, cập nhật, v.v. */}
-          {(isCreate || editing) ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={cancelEdit}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-wide text-gray-500 hover:bg-gray-50 shadow-sm"
-              >
-                <X size={14} /> Hủy
-              </button>
-              <button
-                type="button"
-                onClick={() => confirmEdit()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#00A859] px-3 py-2 text-[11px] font-black uppercase tracking-wide text-white hover:bg-green-700 shadow-sm"
-              >
-                <Check size={14} /> Lưu
-              </button>
-            </div>
-          ) : (
-            canEdit && (
-              <div className="flex items-center gap-2">
-                {canResetPassword && (
-                  <button
-                    type="button"
-                    onClick={() => setResetOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-wide text-gray-600 hover:bg-gray-50 shadow-sm"
-                  >
-                    <KeyRound size={14} /> Reset mật khẩu
-                  </button>
-                )}
-                {(canLock || canUnlock) && (
-                  <button
-                    type="button"
-                    onClick={() => setLockOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-wide text-gray-600 hover:bg-gray-50 shadow-sm"
-                  >
-                    {staff.accountLocked ? <Unlock size={14} /> : <Lock size={14} />}
-                    {staff.accountLocked ? 'Mở khóa' : 'Khóa TK'}
-                  </button>
-                )}
-                {canGrantAccount && (
-                  <button
-                    type="button"
-                    onClick={() => setRetryOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-amber-700 hover:bg-amber-100 shadow-sm"
-                  >
-                    <KeyRound size={14} /> Cấp tài khoản
-                  </button>
-                )}
-                {canTransfer && (
-                  <button
-                    type="button"
-                    onClick={() => setTransferOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#00A859] px-3 py-2 text-[11px] font-black uppercase tracking-wide text-white hover:bg-green-700 shadow-sm"
-                  >
-                    <ArrowRightLeft size={14} /> Điều chuyển
-                  </button>
-                )}
-                {canEdit && workStatus !== 'left' && (
-                  <button
-                    type="button"
-                    onClick={openStatusModal}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-amber-800 hover:bg-amber-100 shadow-sm"
-                    title="Đổi trạng thái nhân sự (DLG-04) — tương tự phương tiện"
-                  >
-                    <Clock size={14} /> Đổi trạng thái
-                  </button>
-                )}
-                {canUpdate && (
-                  <button
-                    type="button"
-                    onClick={openEdit}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#00A859] bg-white px-3 py-2 text-[11px] font-black uppercase tracking-wide text-[#00A859] hover:bg-emerald-50 shadow-sm"
-                  >
-                    <Pencil size={14} /> Cập nhật
-                  </button>
-                )}
-              </div>
-            )
-          )}
-        </div>
-      </div>
 
       {(workStatus !== 'active' || craneWarn || expiringDocs.length > 0 || (isDriver && !docs.some((d) => d.type === 'Bằng lái'))) && !isCreate && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
@@ -898,7 +945,7 @@ const PartnerStaffDetail: React.FC = () => {
         </div>
       )}
 
-      <Section title="Thông tin nhân viên" number={1} icon={<UserRound size={16} />}>
+      <Section title="Thông tin nhân viên" number={1} id="sec-info" icon={<UserRound size={16} />}>
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2 lg:grid-cols-4 items-start">
           <div>
             <Label>Mã NV</Label>
@@ -946,6 +993,7 @@ const PartnerStaffDetail: React.FC = () => {
               value={shown.phone}
               readOnly={locked}
               onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+              placeholder="0901234567"
               className={fieldControlClass(locked)}
             />
           </div>
@@ -955,6 +1003,7 @@ const PartnerStaffDetail: React.FC = () => {
               value={shown.email}
               readOnly={locked}
               onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              placeholder="ten.nv@carpla.vn"
               className={fieldControlClass(locked)}
             />
           </div>
@@ -964,6 +1013,7 @@ const PartnerStaffDetail: React.FC = () => {
               value={shown.address}
               readOnly={locked}
               onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+              placeholder="Số nhà, đường, phường, quận"
               className={fieldControlClass(locked)}
             />
           </div>
@@ -994,9 +1044,8 @@ const PartnerStaffDetail: React.FC = () => {
             />
           </div>
           <div>
-            <div>
-              <Label>Vai trò</Label>
-              <select
+            <Label>Vai trò</Label>
+            <select
                 value={createdByStationHead ? 'NVCH' : STAFF_ROLE_TO_PARTNER[STAFF_ROLE_OF[shown.role]]}
                 disabled={locked || createdByStationHead || !isCreate}
                 title={!isCreate ? 'Vai trò không sửa ở Cập nhật' : undefined}
@@ -1019,60 +1068,6 @@ const PartnerStaffDetail: React.FC = () => {
                   <option key={r} value={STAFF_ROLE_TO_PARTNER[r]}>{STAFF_ROLE_LABEL[r]}</option>
                 ))}
               </select>
-            </div>
-
-            {hasFieldBlocks(shown.role) && (
-              <div className="mt-3">
-                <Label>Báo giá & Cứu hộ</Label>
-                <div className="flex h-[34px] items-center gap-4 flex-wrap rounded border border-gray-100 bg-gray-50/70 px-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-600">Báo giá:</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={shown.canQuote}
-                      disabled={locked}
-                      onClick={() => !locked && setEditForm({ ...editForm, canQuote: !editForm.canQuote })}
-                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-                        locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                      } ${shown.canQuote ? 'bg-[#00A859]' : 'bg-gray-300'}`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
-                          shown.canQuote ? 'translate-x-4' : 'translate-x-0.5'
-                        }`}
-                      />
-                    </button>
-                    <span className={`text-[11px] font-bold ${shown.canQuote ? 'text-[#00A859]' : 'text-gray-400'}`}>
-                      {shown.canQuote ? 'Bật' : 'Tắt'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-600">Cứu hộ:</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={shown.canRescue}
-                      disabled={locked}
-                      onClick={() => !locked && setEditForm({ ...editForm, canRescue: !editForm.canRescue })}
-                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-                        locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                      } ${shown.canRescue ? 'bg-[#00A859]' : 'bg-gray-300'}`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
-                          shown.canRescue ? 'translate-x-4' : 'translate-x-0.5'
-                        }`}
-                      />
-                    </button>
-                    <span className={`text-[11px] font-bold ${shown.canRescue ? 'text-[#00A859]' : 'text-gray-400'}`}>
-                      {shown.canRescue ? 'Bật' : 'Tắt'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
           <div>
             <Label required={isCreate}>Đơn vị</Label>
@@ -1131,10 +1126,59 @@ const PartnerStaffDetail: React.FC = () => {
               />
             )}
           </div>
+          <div>
+            <Label>Báo giá & Cứu hộ</Label>
+            <div className="flex h-[34px] items-center gap-4 flex-wrap rounded border border-gray-100 bg-gray-50/70 px-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-600">Báo giá:</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={shown.canQuote}
+                  disabled={locked}
+                  onClick={() => !locked && setEditForm({ ...editForm, canQuote: !editForm.canQuote })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+                    locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                  } ${shown.canQuote ? 'bg-[#00A859]' : 'bg-gray-300'}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
+                      shown.canQuote ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+                <span className={`text-[11px] font-bold ${shown.canQuote ? 'text-[#00A859]' : 'text-gray-400'}`}>
+                  {shown.canQuote ? 'Bật' : 'Tắt'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-600">Cứu hộ:</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={shown.canRescue}
+                  disabled={locked}
+                  onClick={() => !locked && setEditForm({ ...editForm, canRescue: !editForm.canRescue })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+                    locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                  } ${shown.canRescue ? 'bg-[#00A859]' : 'bg-gray-300'}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
+                      shown.canRescue ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+                <span className={`text-[11px] font-bold ${shown.canRescue ? 'text-[#00A859]' : 'text-gray-400'}`}>
+                  {shown.canRescue ? 'Bật' : 'Tắt'}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </Section>
 
-      <Section title="Tài khoản EIM" number={2} icon={<KeyRound size={16} />}>
+      <Section title="Tài khoản EIM" number={2} id="sec-account" icon={<KeyRound size={16} />}>
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2 lg:grid-cols-4">
           {isCreate ? (
             <>
@@ -1177,13 +1221,6 @@ const PartnerStaffDetail: React.FC = () => {
                 />
               </div>
               <div>
-                <Label>Xác thực 2 lớp</Label>
-                <div className="flex h-[34px] items-center gap-1.5 text-[12px] font-semibold text-gray-700">
-                  <Shield size={13} className={editForm.hasAccount ? 'text-gray-400' : 'text-gray-300'} />
-                  {editForm.hasAccount ? 'Chưa kích hoạt' : '—'}
-                </div>
-              </div>
-              <div>
                 <Label>Mật khẩu ban đầu</Label>
                 <input
                   value={editForm.hasAccount ? 'Gửi qua SĐT / SMS' : '—'}
@@ -1213,10 +1250,6 @@ const PartnerStaffDetail: React.FC = () => {
                 <Label>Đăng nhập gần nhất</Label>
                 <input value={staff.lastLoginAt || '—'} readOnly className={fieldControlClass(true)} />
               </div>
-              <div className="lg:col-span-2">
-                <Label>Thiết bị</Label>
-                <input value={staff.lastLoginDevice || '—'} readOnly className={fieldControlClass(true)} />
-              </div>
               {staff.accountLocked && (
                 <>
                   <div>
@@ -1240,84 +1273,7 @@ const PartnerStaffDetail: React.FC = () => {
         </div>
       </Section>
 
-      {showFieldBlocks && (
-      <Section title="Kỹ năng & giấy tờ" number={3} icon={<FileText size={16} />}>
-        <p className="mb-2 text-[11px] font-black uppercase tracking-wider text-gray-500">Dịch vụ làm được</p>
-        <div className="mb-4 overflow-x-auto rounded-lg border border-gray-100">
-          <table className="w-full text-left text-[12px]">
-            <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-wider text-gray-500">
-              <tr>
-                <th className="px-3 py-2">Dịch vụ</th>
-                <th className="px-3 py-2">Cấp độ</th>
-                {editing && <th className="px-3 py-2 w-16">Xóa</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {shown.skills.map((sk, i) => (
-                <tr key={`${sk.service}-${i}`} className="border-t border-gray-100">
-                  <td className="px-3 py-2 font-semibold text-gray-800">
-                    {editing ? (
-                      <select
-                        value={sk.service}
-                        onChange={(e) => setEditForm({ ...editForm, skills: editForm.skills.map((x, j) => (j === i ? { ...x, service: e.target.value } : x)) })}
-                        className={fieldControlClass(false)}
-                      >
-                        {STATION_SERVICES.filter((sv) => sv === sk.service || !editForm.skills.some((x) => x.service === sv)).map((sv) => (
-                          <option key={sv}>{sv}</option>
-                        ))}
-                      </select>
-                    ) : sk.service}
-                  </td>
-                  <td className="px-3 py-2">
-                    {editing ? (
-                      <select
-                        value={sk.level}
-                        onChange={(e) => setEditForm({ ...editForm, skills: editForm.skills.map((x, j) => (j === i ? { ...x, level: Number(e.target.value) as SkillLevel } : x)) })}
-                        className={fieldControlClass(false)}
-                      >
-                        {([1, 2, 3] as SkillLevel[]).map((lv) => (
-                          <option key={lv} value={lv}>{SKILL_LEVEL_LABEL[lv]}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">{SKILL_LEVEL_LABEL[sk.level]}</span>
-                    )}
-                  </td>
-                  {editing && (
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditForm({ ...editForm, skills: editForm.skills.filter((_, j) => j !== i) })}
-                        className="rounded p-1 text-gray-500 hover:bg-red-50 hover:text-red-600"
-                        title="Xóa kỹ năng"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {shown.skills.length === 0 && (
-                <tr>
-                  <td colSpan={editing ? 3 : 2} className="px-3 py-6 text-center text-gray-400">Chưa khai báo kỹ năng (tài xế phải có ít nhất 1 dịch vụ)</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {editing && editForm.skills.length < STATION_SERVICES.length && (
-          <button
-            type="button"
-            onClick={() => {
-              const next = STATION_SERVICES.find((sv) => !editForm.skills.some((x) => x.service === sv));
-              if (next) setEditForm({ ...editForm, skills: [...editForm.skills, { service: next, level: 1 }] });
-            }}
-            className="mb-4 inline-flex items-center gap-1 rounded-lg border-2 border-dashed border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-500 hover:border-[#00A859] hover:text-[#00A859]"
-          >
-            <Plus size={12} /> Thêm dịch vụ
-          </button>
-        )}
-        <p className="mb-2 text-[11px] font-black uppercase tracking-wider text-gray-500">Giấy tờ (bằng lái, chứng chỉ vận hành cẩu)</p>
+      <Section title="Giấy tờ và Chứng chỉ" number={3} id="sec-docs" icon={<FileText size={16} />}>
         <div className="overflow-x-auto rounded-lg border border-gray-100">
           <table className="w-full text-left text-[12px]">
             <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-wider text-gray-500">
@@ -1396,39 +1352,58 @@ const PartnerStaffDetail: React.FC = () => {
           </button>
         )}
       </Section>
-      )}
 
-      {showFieldBlocks && !isCreate && (
-      <Section title="Xe đang gán" number={4} icon={<Truck size={16} />}>
+      {!isCreate && (
+      <Section title="Phương tiện đang phụ trách" number={4} id="sec-vehicles" icon={<Truck size={16} />}>
         {assignedVehicles.length > 0 ? (
-          <div className="space-y-2">
-            {assignedVehicles.map((v) => (
-              <div key={v.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3">
-                <div>
-                  <p className="text-[13px] font-black text-[#091b37]">{v.plate}</p>
-                  <p className="mt-0.5 text-[11px] text-gray-500">
-                    {VEHICLE_TYPE_LABEL[v.type]} · {v.brand} {v.modelLine} · {orgName(v.stationId)}
-                  </p>
-                  <p className="mt-1 text-[11px] font-semibold text-gray-700">
-                    <span className="text-gray-500 font-normal">Giao từ: </span>
-                    <span className="font-mono text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                      {v.driverAssignedAt?.[staff.id] || '01/06/2026'}
-                    </span>
-                  </p>
-                  {craneMissingVehicles.some((x) => x.id === v.id) && (
-                    <p className="mt-1 text-[11px] font-semibold text-amber-700">Thiếu chứng chỉ vận hành cẩu cho xe này.</p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/partner/vehicles/${v.id}`)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#00A859] bg-white px-3 py-1.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
-                >
-                  Chi tiết xe
-                </button>
-              </div>
-            ))}
-            <p className="text-[10px] text-gray-400">Một tài xế có thể được giao nhiều xe. Gán / hủy ghép thực hiện ở Chi tiết xe.</p>
+          <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <table className="w-full text-left text-[12px]">
+              <thead className="bg-gray-50 border-b text-gray-600">
+                <tr>
+                  <th className="px-3 py-2.5 font-bold border-r">Biển số</th>
+                  <th className="px-3 py-2.5 font-bold border-r">Loại xe</th>
+                  <th className="px-3 py-2.5 font-bold border-r">Trạm</th>
+                  <th className="px-3 py-2.5 font-bold border-r">Vai trò</th>
+                  <th className="px-3 py-2.5 font-bold border-r">Giao từ</th>
+                  <th className="px-3 py-2.5 font-bold border-r">Ghi chú</th>
+                  <th className="px-3 py-2.5 font-bold text-center">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {assignedVehicles.map((v) => {
+                  const leadId = v.leadDriverId || v.driverId;
+                  const role = leadId === staff.id ? 'Chính' : 'Phụ';
+                  return (
+                    <tr key={v.id} className="hover:bg-gray-50/80 align-top">
+                      <td className="px-3 py-2.5 border-r font-bold text-gray-900">{v.plate}</td>
+                      <td className="px-3 py-2.5 border-r text-gray-700">
+                        <div>{VEHICLE_TYPE_LABEL[v.type]}</div>
+                        <div className="text-[11px] text-gray-400">{v.brand} {v.modelLine}</div>
+                      </td>
+                      <td className="px-3 py-2.5 border-r font-medium text-gray-700">{orgName(v.stationId)}</td>
+                      <td className="px-3 py-2.5 border-r">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${role === 'Chính' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+                          {role}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 border-r font-medium text-gray-700">{v.driverAssignedAt?.[staff.id] || '01/06/2026'}</td>
+                      <td className="px-3 py-2.5 border-r text-[11px] font-semibold text-amber-700">
+                        {craneMissingVehicles.some((x) => x.id === v.id) ? 'Thiếu chứng chỉ vận hành cẩu' : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/partner/vehicles/${v.id}`)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#00A859] bg-white px-3 py-1.5 text-[11px] font-bold text-[#00A859] hover:bg-emerald-50"
+                        >
+                          Chi tiết xe
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : (
           <p className="text-[12px] text-gray-400">Chưa giao xe. Gán tài xế ở màn Chi tiết xe.</p>
@@ -1437,7 +1412,7 @@ const PartnerStaffDetail: React.FC = () => {
       )}
 
       {!isCreate && (
-        <Section title="Nhật ký hoạt động" number={5} icon={<ClipboardList size={16} />}>
+        <Section title="Nhật ký hoạt động" number={5} id="sec-audit" icon={<ClipboardList size={16} />}>
           <div className="mb-3 flex flex-wrap gap-1.5">
             {(['ALL', ...(Object.keys(STAFF_LOG_KIND_LABEL) as StaffUserLog['kind'][])] as const).map((k) => (
               <button
@@ -1466,7 +1441,7 @@ const PartnerStaffDetail: React.FC = () => {
                 <tbody>
                   {shownLogs.map((log) => (
                     <tr key={log.id} className="border-t border-gray-100 hover:bg-gray-50/50">
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap font-mono text-[11px]">{log.at}</td>
+                      <td className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">{log.at}</td>
                       <td className="px-3 py-2">
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${logKindClass(log.kind)}`}>
                           {STAFF_LOG_KIND_LABEL[log.kind]}
@@ -1478,9 +1453,10 @@ const PartnerStaffDetail: React.FC = () => {
                       <td className="px-3 py-2 text-gray-700">
                         <div className="font-semibold">{log.summary}</div>
                         {(log.before || log.after) && (
-                          <div className="mt-1 text-[11px] text-gray-500 bg-gray-50 rounded p-1.5 border border-gray-100">
-                            {log.before && <div><span className="text-gray-400">Trước: </span><span className="line-through text-red-600">{log.before}</span></div>}
-                            {log.after && <div><span className="text-gray-400">Sau: </span><span className="text-emerald-700 font-semibold">{log.after}</span></div>}
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            {log.before && <span>Trước: {log.before}</span>}
+                            {log.before && log.after && <span> · </span>}
+                            {log.after && <span>Sau: {log.after}</span>}
                           </div>
                         )}
                       </td>
@@ -1602,7 +1578,45 @@ const PartnerStaffDetail: React.FC = () => {
       </PartnerModal>
 
       <PartnerModal
-        open={retryOpen}
+        open={reset2faOpen}
+        title="Reset 2FA"
+        icon={<Shield size={20} />}
+        onClose={() => setReset2faOpen(false)}
+        footer={(
+          <>
+            <button type="button" onClick={() => setReset2faOpen(false)} className={partnerBtnNeutral}>Hủy</button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!record) return;
+                updateStaff(record.id, { mfaEnabled: false });
+                const log: StaffUserLog = {
+                  id: `lg-${Date.now()}`,
+                  staffId: record.id,
+                  kind: 'profile',
+                  at: new Date().toLocaleString('vi-VN'),
+                  summary: 'Reset xác thực 2 lớp',
+                  byName: persona.title,
+                };
+                registerStaffLog(log);
+                setRecord({ ...record, mfaEnabled: false });
+                setLogs((prev) => [log, ...prev]);
+                setReset2faOpen(false);
+                setNotice(`Đã reset xác thực 2 lớp của ${record.fullname}. Nhân viên cần kích hoạt lại khi đăng nhập.`);
+              }}
+              className={partnerBtnBrand}
+            >
+              Reset 2FA
+            </button>
+          </>
+        )}
+      >
+        <p className="text-[12px] font-semibold text-gray-700">
+          Tắt xác thực 2 lớp của <strong>{staff.fullname}</strong> ({usernameOf(staff)}). Lần đăng nhập sau, nhân viên thiết lập lại 2FA.
+        </p>
+      </PartnerModal>
+
+      <PartnerModal
         title="Cấp tài khoản"
         icon={<KeyRound size={20} />}
         onClose={() => setRetryOpen(false)}

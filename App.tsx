@@ -542,7 +542,7 @@ const App: React.FC = () => {
     }
     if (currentStep === Step.PARTNER_STAFF) {
       if (location.pathname.endsWith('/partner/staff/new')) {
-        return ['Nhân sự & Ca trực', 'Danh sách nhân viên', 'Thêm nhân viên'];
+        return ['Nhân sự & Ca trực', 'Danh sách nhân viên', 'Thêm mới nhân viên'];
       }
       if (location.pathname.match(/\/partner\/staff\/[^/]+$/)) {
         return ['Nhân sự & Ca trực', 'Danh sách nhân viên', 'Chi tiết nhân viên'];

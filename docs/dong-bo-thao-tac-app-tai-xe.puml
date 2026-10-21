@@ -1,0 +1,66 @@
+@startuml
+title Luồng cập nhật thao tác, ảnh, vị trí
+
+actor User
+participant App
+participant BE
+
+User -> App: Cập nhật thao tác, chụp 1 trong 3 loại ảnh,\nhoặc lấy vị trí
+note over App
+  Ghi actedAt và clientEventId lúc thao tác.
+  State ghi updated_At lúc bấm.
+  Ảnh: tạo thư mục theo đơn và photo_type,
+  copy file xong mới có file_path.
+end note
+App -> App: Đẩy hàng đợi, status = SENDING
+App -> BE: Cập nhật thông tin
+
+alt Response = 200
+  BE -> BE: Cập nhật state và các bảng liên quan.\nsync_type = IMMEDIATE
+  BE --> App: 200
+  App -> App: Resolved hàng đợi
+else Response <> 200
+  BE --> App: Response <> 200
+  App -> App: Chuyển hàng đợi status = PENDING
+  note over App
+    Job quét PENDING mỗi 15–30 phút.
+    Bản ghi SENDING quá hạn chưa có response
+    cũng chuyển PENDING.
+  end note
+  App -> BE: Đẩy thông tin bản ghi PENDING
+  BE -> BE: Kiểm tra state hiện tại,\nso với state app đẩy. Check trong roh
+
+  alt Chưa có state chen ngang
+    BE -> BE: Cập nhật state và các bảng liên quan.\nsync_type = DEFERRED
+    BE --> App: Response
+    App -> App: Resolved hàng đợi
+  else Đã có state chen ngang
+    BE -> BE: Cập nhật rescue_order_history của bản ghi đó,\nkhông đổi state hiện tại
+    BE --> App: Response
+    App -> App: Resolved hàng đợi
+  else Đã ở đúng state được yêu cầu cập nhật
+    BE --> App: Response
+    App -> App: Resolved hàng đợi
+  end
+end
+
+User -> App: Mở chi tiết đơn
+App -> BE: GET chi tiết
+BE --> App: state kèm updated_At,\nrescue_order_history,\nảnh và vị trí đã lưu
+App -> App: Lấy bản ghi state mới nhất\ncòn SENDING hoặc PENDING,\ntheo updated_At
+alt Không còn bản ghi state trong hàng đợi
+App -> User: Hiện đúng state của API chi tiết
+else updated_At hàng đợi muộn hơn updated_At của API
+App -> User: Hiện state của hàng đợi, dấu chưa đồng bộ. Không xóa hàng đợi.
+else updated_At của API muộn hơn updated_At hàng đợi
+App -> User: Hiện state của API. Giữ PENDING để job gửi BE kiểm tra roh.
+else updated_At bằng nhau và state đã trùng
+  App -> App: Resolved hàng đợi
+App -> User: Hiện state của API
+end
+note over App
+  Ảnh và vị trí vẫn ghép từ hàng đợi,
+  không so bằng updated_At của state.
+end note
+
+@enduml

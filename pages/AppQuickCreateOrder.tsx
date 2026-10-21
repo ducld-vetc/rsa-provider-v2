@@ -1,7 +1,7 @@
 /**
  * AppQuickCreateOrder.tsx
  * FL-M3-04 — Tạo nhanh yêu cầu cứu hộ trên App VETC cứu hộ
- * Giao diện MOBILE (Workfield Mobile App) dựa trên cấu trúc đầy đủ của /station/create (StationCreateOrder.tsx)
+ * Giao diện MOBILE (ứng dụng VETC Cứu hộ) dựa trên cấu trúc đầy đủ của /station/create (StationCreateOrder.tsx)
  * Đầy đủ 3 khối nghiệp vụ chuẩn:
  *   1. Thông tin sự cố & Khách hàng (SĐT, Biển số, Hãng xe, Vị trí GPS, Mức độ, Thời tiết, Mô tả + AI, Dịch vụ yêu cầu)
  *   2. Thông tin điều phối & Tự nhận việc (Self-Assign switch, Trạm, Tài xế, Xe, Điểm kéo về, Bảng chi phí & Dịch vụ thực tế, VAT)
@@ -379,7 +379,7 @@ const AppQuickCreateOrder: React.FC = () => {
               </button>
               <div>
                 <h2 className="text-sm font-black leading-tight">Tạo nhanh yêu cầu cứu hộ</h2>
-                <span className="text-[10px] text-green-100 font-medium">Workfield • Trạm Carpla Hà Nội</span>
+                <span className="text-[10px] text-green-100 font-medium">VETC Cứu hộ • Trạm Carpla Hà Nội</span>
               </div>
             </div>
             <span className="bg-white/20 text-[10px] font-bold px-2 py-0.5 rounded-full">

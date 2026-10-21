@@ -8,7 +8,7 @@ import {
   Lock,
   Plus,
   RefreshCw,
-  Search,
+  RotateCcw,
   Unlock,
   ArrowRightLeft,
   Calendar,
@@ -75,7 +75,17 @@ const SectionHeader = ({
   </div>
 );
 
-const fieldClass = 'w-full flex-1 border rounded px-3 py-1.5 text-xs outline-none focus:border-[#00A859] bg-white text-gray-700 shadow-sm';
+const filterLabelClass = 'flex min-w-0 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-gray-500';
+const filterControlClass = 'w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold normal-case tracking-normal text-gray-800 outline-none focus:border-[#0E8F47]';
+
+const FilterSelect: React.FC<{ label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }> = ({ label, value, onChange, children }) => (
+  <label className={filterLabelClass}>
+    {label}
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={`${filterControlClass} truncate`}>
+      {children}
+    </select>
+  </label>
+);
 
 const IMPORT_HEADERS = [
   'Họ tên',
@@ -247,7 +257,6 @@ const PartnerStaff: React.FC = () => {
   const [code, setCode] = useState('');
   const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [roleFilter, setRoleFilter] = useState<StaffRole | ''>('');
   const [partnerFilter, setPartnerFilter] = useState('');
   const [orgFilter, setOrgFilter] = useState('');
@@ -275,11 +284,14 @@ const PartnerStaff: React.FC = () => {
   const [lockReasonText, setLockReasonText] = useState('');
 
   // DLG-03: Điều chuyển nhân viên
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [transferOf, setTransferOf] = useState<PartnerStaffRecord | null>(null);
+  const [transferTargets, setTransferTargets] = useState<PartnerStaffRecord[]>([]);
   const [transferToStation, setTransferToStation] = useState('');
   const [transferEffectiveDate, setTransferEffectiveDate] = useState('2026-11-01');
   const [transferReason, setTransferReason] = useState('Bổ sung nhân sự theo ca');
   const [transferNote, setTransferNote] = useState('');
+  const [bulkStopOpen, setBulkStopOpen] = useState(false);
 
   // Modals khác
   const [retryOf, setRetryOf] = useState<PartnerStaffRecord | null>(null);
@@ -371,10 +383,6 @@ const PartnerStaff: React.FC = () => {
       const s = phone.toLowerCase().replace(/\s/g, '');
       list = list.filter((x) => x.phone.toLowerCase().replace(/\s/g, '').includes(s));
     }
-    if (email.trim()) {
-      const s = email.toLowerCase().trim();
-      list = list.filter((x) => (x.email || '').toLowerCase().includes(s));
-    }
     if (roleFilter) list = list.filter((x) => STAFF_ROLE_OF[x.role] === roleFilter);
     if (partnerFilter) {
       list = list.filter((x) => x.orgNodeId === partnerFilter || (x.stationId && getStationsForOrg(partnerFilter).some((st) => st.id === x.stationId)));
@@ -404,7 +412,7 @@ const PartnerStaff: React.FC = () => {
     }
 
     return list;
-  }, [persona, staffList, q, code, username, phone, email, roleFilter, partnerFilter, orgFilter, stationFilter, accountStatusFilter, workStatuses, licenseFilter]);
+  }, [persona, staffList, q, code, username, phone, roleFilter, partnerFilter, orgFilter, stationFilter, accountStatusFilter, workStatuses, licenseFilter]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const paginatedRows = useMemo(() => {
@@ -516,32 +524,81 @@ const PartnerStaff: React.FC = () => {
     setLockReasonText('');
   };
 
-  // Xác nhận Điều chuyển nhân viên (DLG-03)
-  const handleConfirmTransfer = () => {
-    if (!transferOf || !transferToStation) return;
-    const fromStation = transferOf.stationId ?? 'Chưa gán trạm';
-    
-    // AC-21, BR-G06: Xe đang gán tự động bị hủy ghép khi điều chuyển nhân sự
-    assignDriverToVehicle(transferOf.id, null);
+  const canTransferStaff = (s: PartnerStaffRecord) =>
+    canManage && staffWorkStatusOf(s) === 'active' && !!s.stationId;
 
-    registerStaffTransfer({
-      id: `trans-${Date.now()}`,
-      staffId: transferOf.id,
-      fromStationId: fromStation,
-      toStationId: transferToStation,
-      transferredAt: `${transferEffectiveDate} (Kế hoạch)`,
-      byName: persona.title,
-      reason: `${transferReason}. ${transferNote}`.trim(),
-    });
-    patchStaff(transferOf.id, { stationId: transferToStation });
-    setNotice(`Đã tạo lệnh điều chuyển nhân sự ${transferOf.fullname} sang ${orgName(transferToStation)} hiệu lực từ ${transferEffectiveDate}. Toàn bộ xe đang gán (nếu có) đã tự động hủy ghép.`);
-    setTransferOf(null);
+  const openTransfer = (list: PartnerStaffRecord[]) => {
+    const targets = list.filter(canTransferStaff);
+    if (targets.length === 0) return;
+    setTransferTargets(targets);
+    setTransferOf(targets[0]);
     setTransferToStation('');
     setTransferNote('');
   };
 
-  const handleExportExcel = () => {
-    const data = rows.map((s, i) => {
+  const closeTransfer = () => {
+    setTransferOf(null);
+    setTransferTargets([]);
+    setTransferToStation('');
+    setTransferNote('');
+  };
+
+  // Xác nhận Điều chuyển nhân viên (DLG-03)
+  const handleConfirmTransfer = () => {
+    const targets = transferTargets.length ? transferTargets : transferOf ? [transferOf] : [];
+    if (targets.length === 0 || !transferToStation) return;
+    targets.forEach((staff) => {
+      const fromStation = staff.stationId ?? 'Chưa gán trạm';
+      assignDriverToVehicle(staff.id, null);
+      registerStaffTransfer({
+        id: `trans-${Date.now()}-${staff.id}`,
+        staffId: staff.id,
+        fromStationId: fromStation,
+        toStationId: transferToStation,
+        transferredAt: `${transferEffectiveDate} (Kế hoạch)`,
+        byName: persona.title,
+        reason: `${transferReason}. ${transferNote}`.trim(),
+      });
+      updateStaff(staff.id, { stationId: transferToStation });
+    });
+    const ids = new Set(targets.map((s) => s.id));
+    setStaffList((prev) => prev.map((s) => (ids.has(s.id) ? { ...s, stationId: transferToStation } : s)));
+    setSelectedIds((prev) => prev.filter((id) => !ids.has(id)));
+    setNotice(
+      targets.length > 1
+        ? `Đã điều chuyển ${targets.length} nhân viên sang ${orgName(transferToStation)} hiệu lực từ ${transferEffectiveDate}. Xe đang gán đã tự động hủy ghép.`
+        : `Đã tạo lệnh điều chuyển nhân sự ${targets[0].fullname} sang ${orgName(transferToStation)} hiệu lực từ ${transferEffectiveDate}. Toàn bộ xe đang gán (nếu có) đã tự động hủy ghép.`
+    );
+    closeTransfer();
+  };
+
+  const bulkStopTargets = rows.filter(
+    (s) => selectedIds.includes(s.id) && staffWorkStatusOf(s) !== 'left' && s.dutyStatus !== 'on_order'
+  );
+
+  const confirmBulkStop = () => {
+    if (bulkStopTargets.length === 0) return;
+    const at = `${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+    bulkStopTargets.forEach((staff) => {
+      const oldStatusLabel = STAFF_WORK_STATUS_LABEL[staffWorkStatusOf(staff)];
+      updateStaff(staff.id, { workStatus: 'paused' });
+      registerStaffLog({
+        id: `lg-${Date.now()}-${staff.id}`,
+        staffId: staff.id,
+        kind: 'profile',
+        at,
+        summary: `Ngừng hàng loạt: ${oldStatusLabel} → ${STAFF_WORK_STATUS_LABEL.paused}`,
+        byName: persona.title,
+      });
+    });
+    setStaffList([...PARTNER_STAFF]);
+    setSelectedIds([]);
+    setBulkStopOpen(false);
+    setNotice(`Đã ngừng ${bulkStopTargets.length} nhân viên`);
+  };
+
+  const handleExportExcel = (list: PartnerStaffRecord[] = rows) => {
+    const data = list.map((s, i) => {
       const chk = checkLicenseStatus(s);
       return {
         STT: i + 1,
@@ -571,7 +628,6 @@ const PartnerStaff: React.FC = () => {
     setCode('');
     setUsername('');
     setPhone('');
-    setEmail('');
     setRoleFilter('');
     setPartnerFilter('');
     setOrgFilter('');
@@ -585,13 +641,33 @@ const PartnerStaff: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-500 w-full min-w-0 max-w-full">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 animate-in fade-in duration-300 w-full min-w-0 max-w-full">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-black text-gray-900 uppercase tracking-tight">Quản lý nhân viên (FL-M2-01)</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Hồ sơ nhân sự, tài khoản, kỹ năng & giấy tờ cứu hộ
+          <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Danh sách nhân viên</h1>
+          <p className="mt-1 text-[13px] text-gray-500">
+            Phạm vi: {persona.label} · Hồ sơ nhân sự, tài khoản, kỹ năng và giấy tờ cứu hộ
           </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+          >
+            <Download size={15} />
+            Xuất Excel
+          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => navigate('/partner/staff/new')}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0E8F47] px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
+            >
+              <Plus size={15} />
+              Thêm nhân viên
+            </button>
+          )}
         </div>
       </div>
 
@@ -640,279 +716,218 @@ const PartnerStaff: React.FC = () => {
         </div>
       )}
 
-      {/* Tra cứu Form SCR-01 (3 rows x 3 cols chuẩn VETC RSA) */}
-      <div className="border rounded-lg shadow-sm overflow-hidden bg-white">
-        <SectionHeader title="Tra cứu" icon={<Search size={16} />} />
-        <div className="p-4 sm:p-5">
-          {/* Hàng 1: Họ tên, Mã NV, Username */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Họ tên NV</label>
-              <input
-                type="text"
-                value={q}
-                onChange={(e) => {
-                  setQ(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Nhập tên nhân viên..."
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Mã NV</label>
-              <input
-                type="text"
-                value={code}
-                onChange={(e) => {
-                  setCode(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="CP-0001..."
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Username</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => {
-                  setUsername(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="huantv..."
-                className={fieldClass}
-              />
-            </div>
-          </div>
-
-          {/* Hàng 2: SĐT, Đối tác (UI-04), Đơn vị / Trạm */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 mt-3">
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">SĐT</label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="0906 666 666..."
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Đối tác</label>
-              <select
-                value={partnerFilter}
-                onChange={(e) => {
-                  setPartnerFilter(e.target.value);
-                  setOrgFilter('');
-                  setStationFilter('');
-                  setCurrentPage(1);
-                }}
-                className={fieldClass}
-              >
-                <option value="">Tất cả đối tác</option>
-                {ORG_NODES.filter((n) => !n.isStation).map((n) => (
-                  <option key={n.id} value={n.id}>{n.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Trạm cứu hộ</label>
-              <select
-                value={stationFilter}
-                onChange={(e) => {
-                  setStationFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className={fieldClass}
-              >
-                <option value="">Tất cả trạm</option>
-                {(partnerFilter ? getStationsForOrg(partnerFilter) : (orgFilter ? getStationsForOrg(orgFilter) : STATION_OPTIONS)).map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Hàng 3: Email, Vai trò, Tài khoản EIM */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 mt-3">
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Email</label>
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="example@carpla.vn..."
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Vai trò</label>
-              <select
-                value={roleFilter}
-                onChange={(e) => {
-                  setRoleFilter(e.target.value as StaffRole | '');
-                  setCurrentPage(1);
-                }}
-                className={fieldClass}
-              >
-                <option value="">Tất cả vai trò</option>
-                {(Object.keys(STAFF_ROLE_LABEL) as StaffRole[]).map((r) => (
-                  <option key={r} value={r}>{STAFF_ROLE_LABEL[r]}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">Tài khoản EIM</label>
-              <select
-                value={accountStatusFilter}
-                onChange={(e) => {
-                  setAccountStatusFilter(e.target.value as any);
-                  setCurrentPage(1);
-                }}
-                className={fieldClass}
-              >
-                <option value="ALL">Tất cả trạng thái TK EIM</option>
-                <option value="ACTIVE">Hoạt động</option>
-                <option value="LOCKED">Bị khóa</option>
-                <option value="UNASSIGNED">Không có tài khoản</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Hàng 4: Trạng thái NS (UI-03, BR-06: multi-select) & Khoảng ngày (UI-04) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 mt-3">
-            <div className="flex items-center gap-3 md:col-span-2">
-              <label className="w-28 shrink-0 text-xs font-semibold text-gray-600">
-                Trạng thái NS <span className="text-[10px] text-gray-400 font-normal">(chọn nhiều)</span>
-              </label>
-              <div className="flex items-center gap-2 flex-wrap">
-                {[
-                  { key: 'active' as const, label: 'Hoạt động', color: 'border-emerald-300 text-emerald-800 bg-emerald-50' },
-                  { key: 'paused' as const, label: 'Không hoạt động', color: 'border-amber-300 text-amber-800 bg-amber-50' },
-                  { key: 'left' as const, label: 'Ngừng vĩnh viễn', color: 'border-gray-300 text-gray-700 bg-gray-100' },
-                ].map(({ key, label, color }) => {
-                  const selected = workStatuses.includes(key);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => {
-                        setWorkStatuses((prev) => {
-                          const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-                          return next;
-                        });
-                        setCurrentPage(1);
-                      }}
-                      className={`px-2.5 py-1 rounded-full text-xs font-bold border transition flex items-center gap-1.5 ${
-                        selected ? `${color} shadow-sm ring-1 ring-offset-1 ring-emerald-500` : 'border-gray-200 text-gray-400 bg-gray-50/60 opacity-60'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full ${selected ? (key === 'active' ? 'bg-emerald-600' : key === 'paused' ? 'bg-amber-600' : 'bg-gray-500') : 'bg-gray-300'}`} />
-                      <span>{label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="w-20 shrink-0 text-xs font-semibold text-gray-600">Từ – Đến</label>
-              <div className="flex items-center gap-1 w-full">
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => {
-                    setFromDate(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className={`${fieldClass} text-[11px] px-1.5`}
-                  title="Từ ngày"
-                />
-                <span className="text-gray-400 text-xs">-</span>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => {
-                    setToDate(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className={`${fieldClass} text-[11px] px-1.5`}
-                  title="Đến ngày"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-5 pt-4 border-t border-gray-100">
-            <div className="flex items-center gap-2 flex-wrap">
-              {canCreate && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/partner/staff/new')}
-                  className="flex items-center gap-1.5 bg-[#00A859] text-white px-3.5 py-2 rounded font-bold text-xs hover:bg-green-700 transition shadow-sm"
-                >
-                  <Plus size={15} />
-                  <span>+ Thêm nhân viên</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="flex items-center gap-1.5 border border-gray-300 bg-white text-gray-700 px-3.5 py-2 rounded font-bold text-xs hover:bg-gray-50 transition shadow-sm"
-              >
-                <FileSpreadsheet size={15} className="text-[#00A859]" />
-                <span>Xuất Excel</span>
-              </button>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className="text-xs text-gray-500 font-medium mr-1">Tìm thấy <strong className="text-gray-800">{rows.length}</strong> nhân viên</span>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="px-3.5 py-2 rounded text-xs font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition"
-              >
-                Đặt lại
-              </button>
-              <button
-                type="button"
-                onClick={() => {}}
-                className="flex items-center gap-1.5 bg-[#00A859] text-white px-4 py-2 rounded font-bold text-xs hover:bg-green-700 transition shadow-sm"
-              >
-                <Search size={14} />
-                <span>Tìm kiếm</span>
-              </button>
-            </div>
-          </div>
+      <section className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <label className={filterLabelClass}>
+            Họ tên NV
+            <input
+              type="text"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Nhập tên nhân viên..."
+              className={filterControlClass}
+            />
+          </label>
+          <label className={filterLabelClass}>
+            Mã NV
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="CP-0001..."
+              className={filterControlClass}
+            />
+          </label>
+          <label className={filterLabelClass}>
+            Username
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="huantv..."
+              className={filterControlClass}
+            />
+          </label>
+          <label className={filterLabelClass}>
+            SĐT
+            <input
+              type="text"
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="0906 666 666..."
+              className={filterControlClass}
+            />
+          </label>
+          <FilterSelect
+            label="Đối tác"
+            value={partnerFilter}
+            onChange={(value) => {
+              setPartnerFilter(value);
+              setOrgFilter('');
+              setStationFilter('');
+              setCurrentPage(1);
+            }}
+          >
+            <option value="">Tất cả đối tác</option>
+            {ORG_NODES.filter((n) => !n.isStation).map((n) => (
+              <option key={n.id} value={n.id}>{n.name}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect
+            label="Trạm cứu hộ"
+            value={stationFilter}
+            onChange={(value) => {
+              setStationFilter(value);
+              setCurrentPage(1);
+            }}
+          >
+            <option value="">Tất cả trạm</option>
+            {(partnerFilter ? getStationsForOrg(partnerFilter) : (orgFilter ? getStationsForOrg(orgFilter) : STATION_OPTIONS)).map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect
+            label="Vai trò"
+            value={roleFilter}
+            onChange={(value) => {
+              setRoleFilter(value as StaffRole | '');
+              setCurrentPage(1);
+            }}
+          >
+            <option value="">Tất cả vai trò</option>
+            {(Object.keys(STAFF_ROLE_LABEL) as StaffRole[]).map((r) => (
+              <option key={r} value={r}>{STAFF_ROLE_LABEL[r]}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect
+            label="Tài khoản EIM"
+            value={accountStatusFilter}
+            onChange={(value) => {
+              setAccountStatusFilter(value as 'ALL' | 'ACTIVE' | 'LOCKED' | 'UNASSIGNED' | 'FAILED');
+              setCurrentPage(1);
+            }}
+          >
+            <option value="ALL">Tất cả trạng thái</option>
+            <option value="ACTIVE">Hoạt động</option>
+            <option value="LOCKED">Bị khóa</option>
+            <option value="UNASSIGNED">Không có tài khoản</option>
+          </FilterSelect>
+          <label className={filterLabelClass}>
+            Từ ngày
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={filterControlClass}
+              title="Từ ngày"
+            />
+          </label>
+          <label className={filterLabelClass}>
+            Đến ngày
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={filterControlClass}
+              title="Đến ngày"
+            />
+          </label>
         </div>
-      </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {[
+              { key: 'active' as const, label: 'Hoạt động' },
+              { key: 'paused' as const, label: 'Không hoạt động' },
+              { key: 'left' as const, label: 'Ngừng vĩnh viễn' },
+            ].map(({ key, label }) => {
+              const selected = workStatuses.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setWorkStatuses((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+                    setCurrentPage(1);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${
+                    selected ? 'border-[#0E8F47] bg-emerald-50 text-[#0B6B37]' : 'border-gray-300 bg-white text-gray-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold"
+          >
+            <RotateCcw size={14} />
+            Xóa bộ lọc
+          </button>
+        </div>
+      </section>
 
       {/* Main Table UI-15: 12 cột chuẩn FDD-FL-M2-01 */}
       <div className="border rounded-lg shadow-sm bg-white w-full min-w-0 overflow-hidden">
-        <SectionHeader title="Kết quả tìm kiếm" />
+        <SectionHeader
+          title={`Kết quả tìm kiếm (${rows.length})`}
+          rightNode={
+            selectedIds.length > 0 ? (
+              <span className="flex flex-wrap items-center gap-1.5 normal-case tracking-normal">
+                <span className="text-[11px] font-semibold text-gray-600">Đã chọn {selectedIds.length}</span>
+                <button type="button" onClick={() => openTransfer(rows.filter((s) => selectedIds.includes(s.id)))} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-semibold text-gray-800">Điều chuyển trạm</button>
+                <button type="button" onClick={() => handleExportExcel(rows.filter((s) => selectedIds.includes(s.id)))} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-semibold text-gray-800">Xuất Excel</button>
+                <button type="button" onClick={() => setBulkStopOpen(true)} className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700">Ngừng hàng loạt</button>
+              </span>
+            ) : (
+              <span className="text-[11px] font-normal lowercase tracking-normal">Chọn nhiều nhân viên để điều chuyển, xuất Excel hoặc ngừng</span>
+            )
+          }
+        />
         <div className="w-full overflow-x-auto overscroll-x-contain custom-scrollbar">
           <table className="w-full text-xs border-collapse min-w-[900px]">
             <thead>
-              <tr className="bg-gray-50 border-b text-gray-700 font-bold uppercase tracking-wider text-[10px]">
-                <th className="px-2.5 py-2.5 text-center w-8 border-r">STT</th>
-                <th className="px-2.5 py-2.5 text-center w-28 border-r">Thao tác</th>
-                <th className="px-3 py-2.5 text-left border-r">Nhân viên</th>
-                <th className="px-2.5 py-2.5 text-left border-r">Username</th>
-                <th className="px-2.5 py-2.5 text-left border-r">Vai trò</th>
-                <th className="px-3 py-2.5 text-left border-r">Đơn vị / Trạm</th>
-                <th className="px-2.5 py-2.5 text-left border-r">SĐT</th>
-                <th className="px-2.5 py-2.5 text-left border-r">Email</th>
-                <th className="px-2.5 py-2.5 text-center border-r">Hợp đồng</th>
-                <th className="px-2.5 py-2.5 text-center border-r">Tài khoản EIM</th>
-                <th className="px-2.5 py-2.5 text-center">Trạng thái NS</th>
+              <tr className="bg-gray-50 border-b text-gray-600">
+                <th className="px-2 py-2.5 text-center w-8 font-bold border-r">
+                  <input
+                    type="checkbox"
+                    checked={rows.length > 0 && rows.every((s) => selectedIds.includes(s.id))}
+                    onChange={(e) => setSelectedIds(e.target.checked ? rows.map((s) => s.id) : [])}
+                    className="accent-[#00A859]"
+                    aria-label="Chọn tất cả nhân viên"
+                  />
+                </th>
+                <th className="px-2.5 py-2.5 text-center w-8 font-bold border-r">STT</th>
+                <th className="px-2.5 py-2.5 text-center w-28 font-bold border-r">Thao tác</th>
+                <th className="px-3 py-2.5 text-left font-bold border-r">Nhân viên</th>
+                <th className="px-2.5 py-2.5 text-left font-bold border-r">Username</th>
+                <th className="px-2.5 py-2.5 text-left font-bold border-r">Vai trò</th>
+                <th className="px-3 py-2.5 text-left font-bold border-r">Đơn vị / Trạm</th>
+                <th className="px-2.5 py-2.5 text-left font-bold border-r">SĐT</th>
+                <th className="px-2.5 py-2.5 text-left font-bold border-r">Email</th>
+                <th className="px-2.5 py-2.5 text-center font-bold border-r">Hợp đồng</th>
+                <th className="px-2.5 py-2.5 text-center font-bold border-r">Tài khoản EIM</th>
+                <th className="px-2.5 py-2.5 text-center font-bold">Trạng thái NS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -923,6 +938,15 @@ const PartnerStaff: React.FC = () => {
 
                 return (
                   <tr key={s.id} className="hover:bg-gray-50/80 align-top transition-colors">
+                    <td className="px-2 py-2.5 text-center border-r">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(s.id)}
+                        onChange={(e) => setSelectedIds((prev) => (e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)))}
+                        className="accent-[#00A859]"
+                        aria-label={`Chọn nhân viên ${s.fullname}`}
+                      />
+                    </td>
                     {/* STT */}
                     <td className="px-2.5 py-2.5 text-center border-r text-gray-500 font-medium">{stt}</td>
 
@@ -957,20 +981,6 @@ const PartnerStaff: React.FC = () => {
                             <KeyRound size={14} />
                           </button>
                         )}
-                        {canManage && s.hasAccount && !s.accountLocked && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLockOf(s);
-                              setLockReasonCode('VI_PHAM');
-                              setLockReasonText('');
-                            }}
-                            className="text-red-500 hover:bg-red-50 p-1 rounded transition-colors"
-                            title="Khóa tài khoản (DLG-01)"
-                          >
-                            <Lock size={14} />
-                          </button>
-                        )}
                         {canManage && s.hasAccount && s.accountLocked && ws !== 'left' && (
                           <button
                             type="button"
@@ -998,11 +1008,7 @@ const PartnerStaff: React.FC = () => {
                         {canManage && ws === 'active' && !!s.stationId && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setTransferOf(s);
-                              setTransferToStation('');
-                              setTransferNote('');
-                            }}
+                            onClick={() => openTransfer([s])}
                             className="text-purple-600 hover:bg-purple-50 p-1 rounded transition-colors"
                             title="Điều chuyển trạm (DLG-03)"
                           >
@@ -1049,7 +1055,7 @@ const PartnerStaff: React.FC = () => {
                     </td>
 
                     {/* SĐT */}
-                    <td className="px-2.5 py-2.5 border-r font-mono text-gray-800">{s.phone}</td>
+                    <td className="px-2.5 py-2.5 border-r font-medium text-gray-700">{s.phone}</td>
 
                     {/* Email */}
                     <td className="px-2.5 py-2.5 border-r text-gray-700">
@@ -1098,7 +1104,7 @@ const PartnerStaff: React.FC = () => {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-3 py-12 text-center text-gray-400">
+                  <td colSpan={12} className="px-3 py-12 text-center text-gray-400">
                     <User size={32} className="mx-auto mb-2 opacity-30 text-gray-500" />
                     Không có nhân viên phù hợp với bộ lọc tìm kiếm
                   </td>
@@ -1352,12 +1358,12 @@ const PartnerStaff: React.FC = () => {
       {/* ─── DLG-03: ĐIỀU CHUYỂN NHÂN VIÊN SANG TRẠM KHÁC ─── */}
       <PartnerModal
         open={!!transferOf}
-        title="Điều chuyển nhân viên trạm (DLG-03)"
+        title={transferTargets.length > 1 ? `Điều chuyển ${transferTargets.length} nhân viên` : 'Điều chuyển nhân viên trạm (DLG-03)'}
         icon={<ArrowRightLeft size={20} />}
-        onClose={() => setTransferOf(null)}
+        onClose={closeTransfer}
         footer={(
           <>
-            <button type="button" onClick={() => setTransferOf(null)} className={partnerBtnNeutral}>Hủy</button>
+            <button type="button" onClick={closeTransfer} className={partnerBtnNeutral}>Hủy</button>
             <button
               type="button"
               disabled={!transferToStation}
@@ -1372,24 +1378,34 @@ const PartnerStaff: React.FC = () => {
         <div className="space-y-3 text-xs">
           <div className="bg-gray-50 p-3 rounded-lg border flex items-center justify-between">
             <div>
-              <div className="font-bold text-gray-900 text-sm">{transferOf?.fullname}</div>
-              <div className="text-gray-500">{transferOf?.code} · {transferOf ? staffRoleLabel(transferOf.role) : ''}</div>
+              <div className="font-bold text-gray-900 text-sm">
+                {transferTargets.length > 1 ? transferTargets.map((s) => s.fullname).join(', ') : transferOf?.fullname}
+              </div>
+              <div className="text-gray-500">
+                {transferTargets.length > 1 ? `${transferTargets.length} nhân viên` : `${transferOf?.code} · ${transferOf ? staffRoleLabel(transferOf.role) : ''}`}
+              </div>
             </div>
             <div className="text-right">
               <span className="text-gray-500">Trạm hiện tại:</span>
-              <div className="font-bold text-[#00A859]">{transferOf?.stationId ? orgName(transferOf.stationId) : 'Chưa gán'}</div>
+              <div className="font-bold text-[#00A859]">
+                {(() => {
+                  const stations = [...new Set(transferTargets.map((s) => s.stationId).filter(Boolean))];
+                  if (stations.length > 1) return 'Nhiều trạm';
+                  return stations[0] ? orgName(stations[0]) : 'Chưa gán';
+                })()}
+              </div>
             </div>
           </div>
 
           {/* Cảnh báo xe đang gán (FL-M2-05 BR-G06, AC-21) */}
-          {transferOf && vehiclesOfDriver(transferOf.id).length > 0 && (
+          {transferTargets.some((s) => vehiclesOfDriver(s.id).length > 0) && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-900">
               <div className="flex items-center gap-1.5 font-bold text-xs mb-1">
                 <AlertTriangle size={14} className="text-amber-600 shrink-0" />
                 <span>Cảnh báo hủy ghép phương tiện (FL-M2-05 BR-G06)</span>
               </div>
               <p className="text-[11px] leading-relaxed text-amber-800">
-                Nhân viên đang được ghép với <strong>{vehiclesOfDriver(transferOf.id).length} phương tiện</strong> ({vehiclesOfDriver(transferOf.id).map((v) => v.plate).join(', ')}). Khi xác nhận điều chuyển trạm, toàn bộ các phương tiện này sẽ <strong>tự động bị hủy ghép</strong>!
+                Nhân viên đang được ghép với <strong>{transferTargets.flatMap((s) => vehiclesOfDriver(s.id)).length} phương tiện</strong> ({[...new Set(transferTargets.flatMap((s) => vehiclesOfDriver(s.id).map((v) => v.plate)))].join(', ')}). Khi xác nhận điều chuyển trạm, toàn bộ các phương tiện này sẽ <strong>tự động bị hủy ghép</strong>!
               </p>
             </div>
           )}
@@ -1404,7 +1420,10 @@ const PartnerStaff: React.FC = () => {
               className="w-full border rounded-lg p-2 text-xs outline-none focus:border-vetc-green bg-white font-medium"
             >
               <option value="">-- Chọn trạm tiếp nhận --</option>
-              {STATION_OPTIONS.filter((s) => s.id !== transferOf?.stationId).map((s) => (
+              {STATION_OPTIONS.filter((s) => {
+                const stations = [...new Set(transferTargets.map((t) => t.stationId).filter(Boolean))];
+                return stations.length === 1 ? s.id !== stations[0] : true;
+              }).map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
@@ -1446,6 +1465,30 @@ const PartnerStaff: React.FC = () => {
             />
           </div>
         </div>
+      </PartnerModal>
+
+      <PartnerModal
+        open={bulkStopOpen}
+        title="Ngừng hàng loạt"
+        icon={<AlertTriangle size={20} className="text-red-500" />}
+        onClose={() => setBulkStopOpen(false)}
+        footer={(
+          <>
+            <button type="button" onClick={() => setBulkStopOpen(false)} className={partnerBtnNeutral}>Hủy</button>
+            <button
+              type="button"
+              disabled={bulkStopTargets.length === 0}
+              onClick={confirmBulkStop}
+              className="flex-1 inline-flex items-center justify-center min-h-12 px-4 rounded-xl border-0 bg-[#da2c39] text-base font-semibold text-white disabled:opacity-50"
+            >
+              Ngừng hoạt động
+            </button>
+          </>
+        )}
+      >
+        <p className="text-sm text-gray-700">
+          Ngừng {bulkStopTargets.length} nhân viên đã chọn. Nhân sự đang làm đơn hoặc đã ngừng vĩnh viễn được giữ nguyên.
+        </p>
       </PartnerModal>
 
       {/* Reset Mật khẩu */}

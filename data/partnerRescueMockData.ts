@@ -630,8 +630,8 @@ const demoFleet = (
 export const VEHICLES: VehicleRecord[] = [
   {
     id: 'v1', plate: '29C12345', hnl: 21, imei: '00BD000954', brand: 'Isuzu', modelLine: 'NPR 400', chassis: 'JALC4B16X07001234', engineNo: '4HK1-123456',
-    year: 2022, registrationDate: '15/03/2022', stationId: 'tt-hm', driverId: 's6', driverIds: ['s6', 's7'],
-    driverAssignedAt: { s6: '01/06/2026', s7: '15/07/2026' },
+    year: 2022, registrationDate: '15/03/2022', stationId: 'tt-hm', driverId: 's6', driverIds: ['s6', 's7', 's4', 's8'],
+    driverAssignedAt: { s6: '01/06/2026', s7: '15/07/2026', s4: '01/09/2025', s8: '02/02/2026' },
     type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '8 tấn', loadLift: '—', seats: '3', runStatus: 'active',
     status: 'STOPPED',
     services: ['Xe hết pin', 'Kích bình ắc quy', 'Cẩu kéo xe tai nạn', 'Kéo xe ngập nước'],
@@ -687,7 +687,8 @@ export const VEHICLES: VehicleRecord[] = [
   },
   {
     id: 'v4', plate: '15B33344', hnl: 41, imei: '01BD000D45', brand: 'Isuzu', modelLine: 'FRR 90', chassis: 'JALC4B16X07004411', engineNo: '4HK1-441122',
-    year: 2020, registrationDate: '05/11/2020', stationId: 'tt-hp', driverId: null, driverIds: [],
+    year: 2020, registrationDate: '05/11/2020', stationId: 'tt-hp', driverId: 's1', driverIds: ['s1'],
+    driverAssignedAt: { s1: '12/01/2026' },
     type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '8 tấn', loadLift: '—', seats: '3', runStatus: 'active',
     status: 'READY',
     services: ['Cẩu kéo xe tải', 'Xe hết pin', 'Cẩu kéo xe tai nạn'],
@@ -718,7 +719,7 @@ export const VEHICLES: VehicleRecord[] = [
   ...demoFleet([
     { id: 'v6', plate: '29H24680', hnl: 23, brand: 'Isuzu', modelLine: 'NPR 85', stationId: 'tt-hm', driverId: 's6', type: 'san_truot', loadCarry: '3.5 tấn', status: 'READY', ownership: 'Công ty', year: 2023, registrationDate: '12/04/2023', address: 'Ngã tư Giải Phóng - Kim Đồng, Hoàng Mai', inspectionDueDays: 60, gplhDueDays: 90, tndsDueDays: 48 },
     { id: 'v7', plate: '30A13579', hnl: 32, brand: 'Hino', modelLine: '500 Series', stationId: 'tt-hd', driverId: 's9', type: 'san_truot_cau', loadCarry: '8 tấn', loadCrane: '10 tấn', status: 'WORKING', ownership: 'Công ty', year: 2021, registrationDate: '03/08/2021', address: 'Quang Trung, Hà Đông, Hà Nội', inspectionDueDays: 40, gplhDueDays: 55, tndsDueDays: 33 },
-    { id: 'v8', plate: '15C86420', hnl: 42, brand: 'Dongfeng', modelLine: 'Hoàng Huy', stationId: 'tt-hp', driverId: null, type: 'san_truot', loadCarry: '2.5 tấn', status: 'STOPPED', ownership: 'Thuê', year: 2019, registrationDate: '19/01/2019', address: 'Cầu Niệm, Lê Chân, Hải Phòng', inspectionDueDays: -12, gplhDueDays: 20, tndsDueDays: 14 },
+    { id: 'v8', plate: '15C86420', hnl: 42, brand: 'Dongfeng', modelLine: 'Hoàng Huy', stationId: 'tt-hp', driverId: 's2', type: 'san_truot', loadCarry: '2.5 tấn', status: 'STOPPED', ownership: 'Thuê', year: 2019, registrationDate: '19/01/2019', address: 'Cầu Niệm, Lê Chân, Hải Phòng', inspectionDueDays: -12, gplhDueDays: 20, tndsDueDays: 14 },
     { id: 'v9', plate: '51G97531', hnl: 52, brand: 'Isuzu', modelLine: 'QKR 270', stationId: 'tt-bt', driverId: null, type: 'san_nang_truot', loadCarry: '4 tấn', status: 'READY', ownership: 'Đối tác vệ tinh', year: 2022, registrationDate: '28/05/2022', address: 'Xô Viết Nghệ Tĩnh, Bình Thạnh', inspectionDueDays: 18, gplhDueDays: 26, tndsDueDays: -8 },
     { id: 'v10', plate: '29K11223', hnl: 24, brand: 'Hino', modelLine: '300 Dutro', stationId: 'tt-hm', driverId: 's7', type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '6 tấn', status: 'MAINTENANCE', ownership: 'Công ty', year: 2020, registrationDate: '07/09/2020', address: 'Xưởng Hoàng Mai, Tam Trinh', inspectionDueDays: 75, gplhDueDays: 40, tndsDueDays: 22, maintenanceStatus: 'OVERDUE' },
     { id: 'v11', plate: '30E33445', hnl: 33, brand: 'Isuzu', modelLine: 'NMR 85', stationId: 'tt-hd', driverId: 's9', type: 'san_truot', loadCarry: '3 tấn', status: 'READY', ownership: 'Công ty', year: 2024, registrationDate: '14/02/2024', address: 'Tô Hiệu, Hà Đông', inspectionDueDays: 9, gplhDueDays: 70, tndsDueDays: 16 },
@@ -729,7 +730,7 @@ export const VEHICLES: VehicleRecord[] = [
     { id: 'v16', plate: '15K44556', hnl: 44, brand: 'Hino', modelLine: 'XZU 730', stationId: 'tt-hp', driverId: null, type: 'san_truot_cau', loadCarry: '5 tấn', loadCrane: '7 tấn', status: 'READY', ownership: 'Công ty', year: 2022, registrationDate: '30/07/2022', address: 'Tô Hiệu, Lê Chân, Hải Phòng', inspectionDueDays: 88, gplhDueDays: 64, tndsDueDays: 27 },
     { id: 'v17', plate: '51D66778', hnl: 54, brand: 'Isuzu', modelLine: 'NQR 550', stationId: 'tt-bt', driverId: null, type: 'san_truot', loadCarry: '4 tấn', status: 'MAINTENANCE', ownership: 'Đối tác vệ tinh', year: 2019, registrationDate: '11/12/2019', address: 'Nguyễn Xí, Bình Thạnh', inspectionDueDays: 14, gplhDueDays: 33, tndsDueDays: 8, maintenanceStatus: 'DUE_SOON' },
     { id: 'v18', plate: '29M88990', hnl: 26, brand: 'Hino', modelLine: 'XZU 342', stationId: 'tt-hm', driverId: 's7', type: 'san_truot', loadCarry: '2.5 tấn', status: 'READY', ownership: 'Công ty', year: 2025, registrationDate: '04/01/2025', address: 'Giáp Bát, Hoàng Mai', inspectionDueDays: 140, gplhDueDays: 200, tndsDueDays: 110 },
-    { id: 'v19', plate: '30K10112', hnl: 35, brand: 'Isuzu', modelLine: 'FVR 900', stationId: 'tt-hd', driverId: null, type: 'san_truot_cau', loadCarry: '9 tấn', loadCrane: '12 tấn', status: 'READY', ownership: 'Công ty', year: 2018, registrationDate: '25/06/2018', address: 'Mỗ Lao, Hà Đông', inspectionDueDays: 4, gplhDueDays: 12, tndsDueDays: 7 },
+    { id: 'v19', plate: '30K10112', hnl: 35, brand: 'Isuzu', modelLine: 'FVR 900', stationId: 'tt-hd', driverId: 's3', type: 'san_truot_cau', loadCarry: '9 tấn', loadCrane: '12 tấn', status: 'READY', ownership: 'Công ty', year: 2018, registrationDate: '25/06/2018', address: 'Mỗ Lao, Hà Đông', inspectionDueDays: 4, gplhDueDays: 12, tndsDueDays: 7 },
     { id: 'v20', plate: '15L12131', hnl: 45, brand: 'Dongfeng', modelLine: 'KR 230', stationId: 'tt-hp', driverId: null, type: 'san_nang_truot', loadCarry: '3.5 tấn', status: 'WORKING', ownership: 'Thuê', year: 2024, registrationDate: '17/09/2024', address: 'Cảng Hải Phòng, Ngô Quyền', inspectionDueDays: 95, gplhDueDays: 70, tndsDueDays: 36 },
     { id: 'v21', plate: '51H14151', hnl: 55, brand: 'Hino', modelLine: '300 Wide', stationId: 'tt-bt', driverId: null, type: 'san_truot', loadCarry: '4.5 tấn', status: 'READY', ownership: 'Thuê', year: 2022, registrationDate: '08/08/2022', address: 'Ung Văn Khiêm, Bình Thạnh', inspectionDueDays: 62, gplhDueDays: 41, tndsDueDays: 29 },
     { id: 'v22', plate: '29N16171', hnl: 27, brand: 'Dongfeng', modelLine: 'Captain C', stationId: 'tt-hm', driverId: 's6', type: 'san_truot_cau', loadCarry: '6 tấn', loadCrane: '8 tấn', status: 'INACTIVE', ownership: 'Công ty', year: 2017, registrationDate: '02/02/2017', address: 'Lĩnh Nam, Hoàng Mai', inspectionDueDays: -30, gplhDueDays: -4, tndsDueDays: 5, broken: ['Ma ní'] },
@@ -758,7 +759,7 @@ const fleetDemo: Record<string, Partial<VehicleRecord>> = {
   v3: { leadDriverId: 's9', statusReason: 'Hỏng bơm thủy lực sàn nâng', statusStartedAt: '01/10/2026', expectedReturnAt: '18/10/2026', maintenanceFromKm: '15000', maintenanceToKm: '20000' },
   v4: { statusReason: undefined },
   v7: { leadDriverId: 's9', activeOrderCode: 'RO-2610-0142', activeOrderStage: 'Đang kéo về trạm', activeOrderEta: '14/10/2026 11:30' },
-  v8: { statusReason: 'Hết đăng kiểm', statusStartedAt: '02/10/2026', expectedReturnAt: '18/10/2026' },
+  v8: { deputyDriverId: 's1', statusReason: 'Hết đăng kiểm', statusStartedAt: '02/10/2026', expectedReturnAt: '18/10/2026' },
   v10: { leadDriverId: 's7', deputyDriverId: 's6', statusReason: 'Quá hạn bảo dưỡng cấp 2', statusStartedAt: '08/10/2026', expectedReturnAt: '16/10/2026' },
   v13: { activeOrderCode: 'RO-2610-0188', activeOrderStage: 'Đã tới hiện trường', activeOrderEta: '14/10/2026 15:00' },
   v15: { leadDriverId: 's9', statusReason: 'Hết giấy phép lưu hành', statusStartedAt: '05/10/2026', expectedReturnAt: '25/10/2026' },
@@ -834,7 +835,12 @@ export const updateStaff = (id: string, patch: Partial<PartnerStaffRecord>) => {
 };
 
 export const vehiclesOfDriver = (staffId: string) =>
-  VEHICLES.filter((v) => v.driverIds?.includes(staffId) || v.driverId === staffId);
+  VEHICLES.filter((v) =>
+    v.leadDriverId === staffId ||
+    v.deputyDriverId === staffId ||
+    v.driverIds?.includes(staffId) ||
+    v.driverId === staffId
+  );
 
 export const assignDriverToVehicle = (staffId: string, vehicleId: string | null) => {
   if (!vehicleId) {
@@ -1002,6 +1008,24 @@ export const STAFF_USER_LOGS: StaffUserLog[] = [
   { id: 'lg-s9-3', staffId: 's9', kind: 'transfer', at: '12/01/2026 10:20', summary: 'Trạm Hoàng Mai → Trạm Hà Đông · Duyệt: Phạm Quốc Huy', byName: 'Phạm Quốc Huy (QLVUNG)' },
   { id: 'lg-s10-1', staffId: 's10', kind: 'lock', at: '05/08/2026 10:00', summary: 'Khóa tài khoản · Nghỉ việc, tạm hoãn hợp đồng', byName: 'Trần Minh Đức (GDM)' },
   { id: 'lg-s7-1', staffId: 's7', kind: 'account', at: '08/01/2021 09:00', summary: 'Tạo hồ sơ, chưa cấp tài khoản', byName: 'Đỗ Văn Long (GDTT)' },
+  { id: 'lg-s1-1', staffId: 's1', kind: 'account', at: '01/01/2018 08:30', summary: 'Tạo hồ sơ và cấp tài khoản EIM', byName: 'Hệ thống' },
+  { id: 'lg-s1-2', staffId: 's1', kind: 'profile', at: '12/01/2026 10:15', summary: 'Cập nhật số điện thoại liên hệ', byName: 'Nguyễn Văn Bình (BDH)', field: 'SĐT', before: '0901 000 111', after: '0901 111 111' },
+  { id: 'lg-s1-3', staffId: 's1', kind: 'vehicle', at: '12/01/2026 14:00', summary: 'Gán phụ trách xe 15B33344 · Trạm Hải Phòng', byName: 'Trần Minh Đức (GDM)' },
+  { id: 'lg-s1-4', staffId: 's1', kind: 'transfer', at: '03/11/2025 09:00', summary: 'Điều phối phạm vi toàn quốc · Duyệt: Hội đồng', byName: 'Hệ thống' },
+  { id: 'lg-s1-5', staffId: 's1', kind: 'rescue', at: '18/08/2026 16:20', summary: 'RS-15B333-260818-2201 · Theo dõi đơn kéo xe · Hoàn thành', byName: 'Hệ thống' },
+  { id: 'lg-s1-6', staffId: 's1', kind: 'lock', at: '02/04/2026 11:40', summary: 'Mở khóa tài khoản sau khi đổi mật khẩu', byName: 'Nguyễn Văn Bình (BDH)' },
+  { id: 'lg-s2-1', staffId: 's2', kind: 'account', at: '01/03/2019 09:00', summary: 'Tạo hồ sơ Giám đốc miền Bắc', byName: 'Nguyễn Văn Bình (BDH)' },
+  { id: 'lg-s2-2', staffId: 's2', kind: 'profile', at: '03/02/2026 08:20', summary: 'Đổi mật khẩu định kỳ', byName: 'Trần Minh Đức (GDM)' },
+  { id: 'lg-s2-3', staffId: 's2', kind: 'vehicle', at: '15/05/2026 10:00', summary: 'Gán phụ trách xe 15C86420 · Trạm Hải Phòng', byName: 'Trần Minh Đức (GDM)' },
+  { id: 'lg-s3-1', staffId: 's3', kind: 'transfer', at: '15/06/2020 08:00', summary: 'Bổ nhiệm Giám đốc chi nhánh Hà Nội', byName: 'Nguyễn Văn Bình (BDH)' },
+  { id: 'lg-s3-2', staffId: 's3', kind: 'rescue', at: '20/08/2026 09:05', summary: 'RS-29C123-260820-0905 · Giám sát đơn kéo xe Hoàng Mai', byName: 'Hệ thống' },
+  { id: 'lg-s3-3', staffId: 's3', kind: 'vehicle', at: '15/06/2024 10:00', summary: 'Gán phụ trách xe 30K10112 · Trạm Hà Đông', byName: 'Lê Thị Hoa (GDCN)' },
+  { id: 'lg-s4-1', staffId: 's4', kind: 'account', at: '01/09/2021 08:45', summary: 'Cấp tài khoản quản lý vùng Hà Nội', byName: 'Lê Thị Hoa (GDCN)' },
+  { id: 'lg-s4-2', staffId: 's4', kind: 'profile', at: '01/08/2026 17:00', summary: 'Cập nhật email công vụ', byName: 'Phạm Quốc Huy (QLVUNG)' },
+  { id: 'lg-s4-3', staffId: 's4', kind: 'vehicle', at: '01/09/2025 08:30', summary: 'Gán phụ trách xe 29C12345 · Trạm Hoàng Mai', byName: 'Lê Thị Hoa (GDCN)' },
+  { id: 'lg-s8-1', staffId: 's8', kind: 'account', at: '02/02/2022 09:10', summary: 'Tạo hồ sơ kế toán trạm Hoàng Mai', byName: 'Đỗ Văn Long (GDTT)' },
+  { id: 'lg-s8-2', staffId: 's8', kind: 'lock', at: '20/03/2026 15:30', summary: 'Reset mật khẩu sau khi khóa tạm vì sai mật khẩu', byName: 'Đỗ Văn Long (GDTT)' },
+  { id: 'lg-s8-3', staffId: 's8', kind: 'vehicle', at: '02/02/2026 09:40', summary: 'Gán phụ trách xe 29C12345 · Trạm Hoàng Mai', byName: 'Đỗ Văn Long (GDTT)' },
 ];
 
 export const staffLogsOf = (id: string) => STAFF_USER_LOGS.filter((l) => l.staffId === id);
