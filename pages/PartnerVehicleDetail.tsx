@@ -81,13 +81,18 @@ import {
   orgName,
   registerTransfer,
   registerVehicle,
+  expensesOfVehicle,
+  saveVehicleExpenses,
   saveVehicleMedia,
+  VEHICLE_EXPENSE_CATEGORIES,
   toolsFor,
   updateVehicle,
   standardQtyOf,
   type PartnerPersona,
   type VehicleAuditLog,
   type VehicleDocument,
+  type VehicleExpense,
+  type VehicleExpenseCategory,
   type VehicleDriverPairing,
   type VehiclePhoto,
   type AcceptedVehicleKind,
@@ -104,6 +109,7 @@ import {
   toolQtyOf,
   toolReady,
 } from '../data/partnerRescueMockData';
+import AppSelect from '../shared/AppSelect';
 import RescueOrderGpsJourney from '../shared/RescueOrderGpsJourney';
 import MapSelectionModal from '../shared/MapSelectionModal';
 import { INITIAL_VEHICLE_GPS_DATA, type VehicleGpsStatus } from '../data/gpsTrackingMockData';
@@ -138,6 +144,7 @@ const VEHICLE_SECTION_TABS: { id: string; label: string; icon: React.FC<{ size?:
   { id: 'sec-maint', label: 'Bảo dưỡng', icon: Wrench },
   { id: 'sec-photos', label: 'Hình ảnh', icon: ImageIcon },
   { id: 'sec-docs', label: 'Giấy tờ', icon: FileText },
+  { id: 'sec-cost', label: 'Chi phí', icon: DollarSign, hideOnCreate: true },
   { id: 'sec-device', label: 'Thiết bị theo dõi', icon: Radio },
   { id: 'sec-journey', label: 'Hành trình & Camera', icon: Video, hideOnCreate: true },
   { id: 'sec-tools', label: 'Công cụ', icon: ClipboardCheck, hideOnCreate: true },
@@ -211,6 +218,10 @@ const fieldControlClass = (locked: boolean) =>
   `w-full border rounded px-3 py-1.5 text-xs outline-none focus:border-[#00A859] transition-all placeholder:text-gray-400 disabled:cursor-not-allowed ${
     locked ? 'bg-gray-50 text-gray-600 cursor-default border-gray-200' : 'bg-white text-gray-800'
   }`;
+
+const pageSelectClass = '!h-[30px] !rounded !px-3 !text-xs';
+const modalSelectClass = '!h-12 !rounded-xl !border-[#e3e4e6] !bg-[#f5f6f7] !px-4 !text-sm !font-medium';
+const filterSelectClass = '!h-8 !w-[210px] !rounded-lg !px-2.5 !text-[12px] !font-semibold';
 
 const toIsoDate = (dmy: string) => {
   const m = dmy.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -303,6 +314,23 @@ const PartnerVehicleDetail: React.FC = () => {
   const [docs, setDocs] = useState<VehicleDocument[]>(
     isCreate ? [] : VEHICLE_DOCUMENTS[id ?? ''] ?? []
   );
+  const [expenses, setExpenses] = useState<VehicleExpense[]>(
+    isCreate ? [] : expensesOfVehicle(id ?? '')
+  );
+  const [expenseFilter, setExpenseFilter] = useState<'ALL' | VehicleExpenseCategory>('ALL');
+  const [expenseMonth, setExpenseMonth] = useState('ALL');
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [expenseFile, setExpenseFile] = useState<File | null>(null);
+  const [previewExpense, setPreviewExpense] = useState<VehicleExpense | null>(null);
+  const [expenseForm, setExpenseForm] = useState({
+    category: 'Hóa đơn xăng xe' as VehicleExpenseCategory,
+    spentAt: '',
+    amount: '',
+    vendor: '',
+    invoiceNo: '',
+    note: '',
+  });
   const [photos, setPhotos] = useState<VehiclePhoto[]>(
     isCreate ? [] : VEHICLE_PHOTOS[id ?? ''] ?? []
   );
@@ -502,6 +530,7 @@ const PartnerVehicleDetail: React.FC = () => {
         setMaintHistory(found.maintenanceHistory ?? []);
         setTools(found.tools ?? toolsFor(found.type));
         setDocs(VEHICLE_DOCUMENTS[found.id] ?? []);
+        setExpenses(expensesOfVehicle(found.id));
         setPhotos(VEHICLE_PHOTOS[found.id] ?? []);
         setHistory(VEHICLE_TRANSFER_HISTORY.filter((t) => t.vehicleId === found.id));
         setAuditLogs(VEHICLE_AUDIT_LOGS[found.id] ?? []);
@@ -637,6 +666,119 @@ const PartnerVehicleDetail: React.FC = () => {
         vehicle.gplhDueDays < 0 ? 'Hết giấy phép lưu hành' : '',
       ].filter(Boolean);
   const canPair = canEditVehicle;
+
+  const expenseMonthKey = (spentAt: string) => {
+    const [, month, year] = spentAt.split('/');
+    if (!month || !year) return '';
+    return `${year}-${month.padStart(2, '0')}`;
+  };
+  const expenseMonthOptions = useMemo(() => {
+    const keys = new Set<string>();
+    expenses.forEach((row) => {
+      const key = expenseMonthKey(row.spentAt);
+      if (key) keys.add(key);
+    });
+    const now = new Date();
+    keys.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    return [...keys].sort().reverse().map((key) => {
+      const [year, month] = key.split('-');
+      return { value: key, label: `Tháng ${month}/${year}` };
+    });
+  }, [expenses]);
+  const visibleExpenses = expenses.filter((row) => {
+    if (expenseFilter !== 'ALL' && row.category !== expenseFilter) return false;
+    if (expenseMonth !== 'ALL' && expenseMonthKey(row.spentAt) !== expenseMonth) return false;
+    return true;
+  });
+  const expenseFilteredTotal = visibleExpenses.reduce((sum, row) => sum + row.amount, 0);
+
+  const resetExpenseForm = () => {
+    setEditingExpenseId(null);
+    setExpenseForm({ category: 'Hóa đơn xăng xe', spentAt: '', amount: '', vendor: '', invoiceNo: '', note: '' });
+    setExpenseFile(null);
+  };
+
+  const openExpenseEditor = (row?: VehicleExpense) => {
+    if (!row) {
+      resetExpenseForm();
+    } else {
+      setEditingExpenseId(row.id);
+      setExpenseForm({
+        category: row.category,
+        spentAt: toIsoDate(row.spentAt),
+        amount: String(row.amount),
+        vendor: row.vendor,
+        invoiceNo: row.invoiceNo,
+        note: row.note,
+      });
+      setExpenseFile(null);
+    }
+    setExpenseOpen(true);
+  };
+
+  const handleSaveExpense = () => {
+    const amount = Number(expenseForm.amount.replace(/\D/g, ''));
+    const existing = expenses.find((row) => row.id === editingExpenseId);
+    if (!expenseForm.spentAt || !amount || (!expenseFile && !existing)) {
+      triggerToast('Nhập ngày chi, số tiền và file chứng từ');
+      return;
+    }
+    if (expenseFile && expenseFile.size > 1_500_000) {
+      triggerToast('Mỗi file tối đa 1,5 MB');
+      return;
+    }
+    const commit = (fileName: string, fileMime: string, fileUrl: string) => {
+      const spent = fromIsoDate(expenseForm.spentAt);
+      const row: VehicleExpense = existing
+        ? {
+            ...existing,
+            category: expenseForm.category,
+            spentAt: spent || expenseForm.spentAt,
+            amount,
+            vendor: expenseForm.vendor.trim(),
+            invoiceNo: expenseForm.invoiceNo.trim(),
+            note: expenseForm.note.trim(),
+            fileName,
+            fileMime,
+            fileUrl,
+          }
+        : {
+            id: `ex-${Date.now()}`,
+            vehicleId: vehicle.id,
+            category: expenseForm.category,
+            spentAt: spent || expenseForm.spentAt,
+            amount,
+            vendor: expenseForm.vendor.trim(),
+            invoiceNo: expenseForm.invoiceNo.trim(),
+            note: expenseForm.note.trim(),
+            fileName,
+            fileMime,
+            fileUrl,
+            createdAt: new Date().toLocaleString('vi-VN'),
+            createdBy: persona.title,
+          };
+      const next = existing ? expenses.map((item) => (item.id === existing.id ? row : item)) : [row, ...expenses];
+      const stored = saveVehicleExpenses(vehicle.id, next);
+      setExpenses(next);
+      setExpenseOpen(false);
+      resetExpenseForm();
+      triggerToast(stored ? (existing ? 'Đã cập nhật chi phí' : 'Đã lưu chi phí') : 'Đã ghi nhận trên phiên này. File quá lớn nên trình duyệt chưa lưu được.');
+    };
+    if (!expenseFile && existing) {
+      commit(existing.fileName, existing.fileMime, existing.fileUrl);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => commit(expenseFile!.name, expenseFile!.type || 'application/octet-stream', String(reader.result ?? ''));
+    reader.readAsDataURL(expenseFile!);
+  };
+
+  const handleDeleteExpense = (expenseId: string) => {
+    const next = expenses.filter((row) => row.id !== expenseId);
+    const stored = saveVehicleExpenses(vehicle.id, next);
+    setExpenses(next);
+    triggerToast(stored ? 'Đã xóa chi phí' : 'Đã xóa trên phiên này. Trình duyệt chưa lưu được thay đổi.');
+  };
 
   const assignedDriverIds = useMemo(() => {
     if (vehicle.driverIds && vehicle.driverIds.length > 0) return vehicle.driverIds;
@@ -1469,17 +1611,12 @@ const PartnerVehicleDetail: React.FC = () => {
           <div>
             <Label>Hãng xe</Label>
             {editing ? (
-              <select
+              <AppSelect
                 value={editForm.brand}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, brand: e.target.value as VehicleRecord['brand'] })
-                }
-                className={fieldControlClass(false)}
-              >
-                <option value="Isuzu">Isuzu</option>
-                <option value="Hino">Hino</option>
-                <option value="Dongfeng">Dongfeng</option>
-              </select>
+                onChange={(value) => setEditForm({ ...editForm, brand: value as VehicleRecord['brand'] })}
+                className={pageSelectClass}
+                options={['Isuzu', 'Hino', 'Dongfeng'].map((brand) => ({ value: brand, label: brand }))}
+              />
             ) : (
               <input type="text" value={vehicle.brand} readOnly className={fieldControlClass(true)} />
             )}
@@ -1498,19 +1635,16 @@ const PartnerVehicleDetail: React.FC = () => {
           <div>
             <Label required={editing}>Loại xe</Label>
             {editing ? (
-              <select
+              <AppSelect
                 value={editForm.type}
-                onChange={(e) => {
-                  const nt = e.target.value as VehicleRecord['type'];
+                onChange={(value) => {
+                  const nt = value as VehicleRecord['type'];
                   setEditForm({ ...editForm, type: nt });
                   if (isCreate) setTools(toolsFor(nt));
                 }}
-                className={fieldControlClass(false)}
-              >
-                {(Object.keys(VEHICLE_TYPE_LABEL) as VehicleRecord['type'][]).map((t) => (
-                  <option key={t} value={t}>{VEHICLE_TYPE_LABEL[t]}</option>
-                ))}
-              </select>
+                className={pageSelectClass}
+                options={(Object.keys(VEHICLE_TYPE_LABEL) as VehicleRecord['type'][]).map((t) => ({ value: t, label: VEHICLE_TYPE_LABEL[t] }))}
+              />
             ) : (
               <input type="text" value={VEHICLE_TYPE_LABEL[vehicle.type]} readOnly className={fieldControlClass(true)} />
             )}
@@ -1550,20 +1684,24 @@ const PartnerVehicleDetail: React.FC = () => {
           </div>
           <div>
             <Label>Sở hữu</Label>
-            <select value={editing ? editForm.ownership : (vehicle.ownership || 'Công ty')} disabled={!editing} onChange={(e) => setEditForm({ ...editForm, ownership: e.target.value as VehicleRecord['ownership'] })} className={fieldControlClass(!editing)}>
-              <option>Công ty</option>
-              <option>Thuê</option>
-              <option>Đối tác vệ tinh</option>
-            </select>
+            <AppSelect
+              value={editing ? editForm.ownership : (vehicle.ownership || 'Công ty')}
+              disabled={!editing}
+              onChange={(value) => setEditForm({ ...editForm, ownership: value as VehicleRecord['ownership'] })}
+              className={pageSelectClass}
+              options={['Công ty', 'Thuê', 'Đối tác vệ tinh'].map((item) => ({ value: item, label: item }))}
+            />
           </div>
           <div>
             <Label>Nhiên liệu</Label>
-            <select value={editing ? editForm.fuel : (vehicle.fuel || '')} disabled={!editing} onChange={(e) => setEditForm({ ...editForm, fuel: e.target.value })} className={fieldControlClass(!editing)}>
-              <option value="">Chọn nhiên liệu</option>
-              <option>Diesel</option>
-              <option>Xăng</option>
-              <option>Điện</option>
-            </select>
+            <AppSelect
+              value={editing ? editForm.fuel : (vehicle.fuel || '')}
+              disabled={!editing}
+              placeholder="Chọn nhiên liệu"
+              onChange={(value) => setEditForm({ ...editForm, fuel: value })}
+              className={pageSelectClass}
+              options={['Diesel', 'Xăng', 'Điện'].map((item) => ({ value: item, label: item }))}
+            />
           </div>
           <div>
             <Label>Ngày đăng ký</Label>
@@ -1590,15 +1728,13 @@ const PartnerVehicleDetail: React.FC = () => {
             </div>
             <div>
               <Label>Cải hoán</Label>
-              <select
+              <AppSelect
                 value={(editing ? editForm.caiHoan : vehicle.caiHoan) ? 'Yes' : 'No'}
                 disabled={!editing}
-                onChange={(e) => setEditForm({ ...editForm, caiHoan: e.target.value === 'Yes', caiHoanGcn: e.target.value === 'Yes' ? editForm.caiHoanGcn : '' })}
-                className={fieldControlClass(!editing)}
-              >
-                <option>No</option>
-                <option>Yes</option>
-              </select>
+                onChange={(value) => setEditForm({ ...editForm, caiHoan: value === 'Yes', caiHoanGcn: value === 'Yes' ? editForm.caiHoanGcn : '' })}
+                className={pageSelectClass}
+                options={[{ value: 'No', label: 'No' }, { value: 'Yes', label: 'Yes' }]}
+              />
             </div>
             {(editing ? editForm.caiHoan : vehicle.caiHoan) && (
               <div>
@@ -1608,15 +1744,13 @@ const PartnerVehicleDetail: React.FC = () => {
             )}
             <div>
               <Label>Kinh doanh vận tải</Label>
-              <select
+              <AppSelect
                 value={(editing ? editForm.kdvtYes : vehicle.kdvtYes) ? 'Yes' : 'No'}
                 disabled={!editing}
-                onChange={(e) => setEditForm({ ...editForm, kdvtYes: e.target.value === 'Yes' })}
-                className={fieldControlClass(!editing)}
-              >
-                <option>No</option>
-                <option>Yes</option>
-              </select>
+                onChange={(value) => setEditForm({ ...editForm, kdvtYes: value === 'Yes' })}
+                className={pageSelectClass}
+                options={[{ value: 'No', label: 'No' }, { value: 'Yes', label: 'Yes' }]}
+              />
             </div>
             <div>
               <Label>Hiệu lực đăng kiểm</Label>
@@ -1769,24 +1903,18 @@ const PartnerVehicleDetail: React.FC = () => {
           <div>
             <Label required={isCreate}>Trạm</Label>
             {isCreate ? (
-              <select
+              <AppSelect
                 value={editForm.stationId}
-                onChange={(e) => {
-                  const stationId = e.target.value;
+                onChange={(stationId) => {
                   const allowed = new Set(driversAtStation(stationId).map((d) => d.id));
                   const driverId = allowed.has(editForm.driverId) ? editForm.driverId : '';
                   const secondary = editForm.driverIds.filter((id) => allowed.has(id) && id !== driverId);
                   setDriverDropOpen(false);
                   setEditForm({ ...editForm, stationId, driverId, driverIds: driverId ? [driverId, ...secondary] : secondary });
                 }}
-                className={`${fieldControlClass(false)} h-[34px]`}
-              >
-                {STATION_OPTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                className={pageSelectClass}
+                options={STATION_OPTIONS.map((s) => ({ value: s.id, label: s.name }))}
+              />
             ) : (
               <div className="flex items-center gap-2">
                 <input
@@ -1812,10 +1940,10 @@ const PartnerVehicleDetail: React.FC = () => {
             <div>
               <Label>Tài xế chính</Label>
               {editing && isCreate ? (
-                <select
+                <AppSelect
                   value={editForm.driverId}
-                  onChange={(e) => {
-                    const driverId = e.target.value;
+                  placeholder="Chọn tài xế chính"
+                  onChange={(driverId) => {
                     const secondary = editForm.driverIds.filter((id) => id && id !== driverId && id !== editForm.driverId);
                     setEditForm({
                       ...editForm,
@@ -1823,13 +1951,9 @@ const PartnerVehicleDetail: React.FC = () => {
                       driverIds: driverId ? [driverId, ...secondary] : secondary,
                     });
                   }}
-                  className={`${fieldControlClass(false)} h-[34px]`}
-                >
-                  <option value="">Chọn tài xế chính</option>
-                  {driversAtStation(editForm.stationId).map((d) => (
-                    <option key={d.id} value={d.id}>{d.fullname}</option>
-                  ))}
-                </select>
+                  className={pageSelectClass}
+                  options={driversAtStation(editForm.stationId).map((d) => ({ value: d.id, label: d.fullname }))}
+                />
               ) : (
                 <div className="flex items-center gap-2 min-h-[34px]">
                   {vehicle.driverId ? (
@@ -1999,11 +2123,12 @@ const PartnerVehicleDetail: React.FC = () => {
           <div>
             <Label>Trạng thái</Label>
             {editing ? (
-              <select value={editForm.maintenanceStatus} onChange={(e) => setEditForm({ ...editForm, maintenanceStatus: e.target.value as MaintenancePlanStatus })} className={fieldControlClass(false)}>
-                {(Object.keys(MAINTENANCE_STATUS_LABEL) as MaintenancePlanStatus[]).map((key) => (
-                  <option key={key} value={key}>{MAINTENANCE_STATUS_LABEL[key]}</option>
-                ))}
-              </select>
+              <AppSelect
+                value={editForm.maintenanceStatus}
+                onChange={(value) => setEditForm({ ...editForm, maintenanceStatus: value as MaintenancePlanStatus })}
+                className={pageSelectClass}
+                options={(Object.keys(MAINTENANCE_STATUS_LABEL) as MaintenancePlanStatus[]).map((key) => ({ value: key, label: MAINTENANCE_STATUS_LABEL[key] }))}
+              />
             ) : (
               <input type="text" readOnly value={MAINTENANCE_STATUS_LABEL[vehicle.maintenanceStatus ?? 'NORMAL']} className={fieldControlClass(true)} />
             )}
@@ -2282,7 +2407,120 @@ const PartnerVehicleDetail: React.FC = () => {
         </div>
       </Section>
 
-      <Section title="Thiết bị theo dõi" number={7} id="sec-device" icon={<Radio size={16} />}>
+      {!isCreate && (
+      <Section
+        title="Chi phí"
+        number={7}
+        id="sec-cost"
+        icon={<DollarSign size={16} />}
+        rightNode={canEditVehicle ? (
+          <button
+            type="button"
+            onClick={() => openExpenseEditor()}
+            className="rounded bg-white px-2.5 py-1 text-[11px] font-bold text-[#00A859]"
+          >
+            Thêm chi phí
+          </button>
+        ) : undefined}
+      >
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2 text-[12px]">
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 font-semibold text-gray-700">
+              {visibleExpenses.length} chứng từ
+            </span>
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800">
+              Tổng chi phí {formatVnd(expenseFilteredTotal)}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <AppSelect
+              value={expenseMonth}
+              onChange={setExpenseMonth}
+              className={filterSelectClass}
+              options={[{ value: 'ALL', label: 'Tất cả tháng' }, ...expenseMonthOptions]}
+            />
+            <AppSelect
+              value={expenseFilter}
+              onChange={(value) => setExpenseFilter(value as 'ALL' | VehicleExpenseCategory)}
+              className={filterSelectClass}
+              options={[
+                { value: 'ALL', label: 'Tất cả loại' },
+                ...VEHICLE_EXPENSE_CATEGORIES.map((category) => ({ value: category, label: category })),
+              ]}
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-gray-100">
+          <table className="w-full text-left text-[12px]">
+            <thead className="border-b bg-gray-50 text-gray-600">
+              <tr>
+                <th className="border-r px-3 py-2.5 font-bold">Ngày chi</th>
+                <th className="border-r px-3 py-2.5 font-bold">Loại</th>
+                <th className="border-r px-3 py-2.5 font-bold">Số chứng từ</th>
+                <th className="border-r px-3 py-2.5 font-bold">Nơi chi</th>
+                <th className="border-r px-3 py-2.5 font-bold">Số tiền</th>
+                <th className="border-r px-3 py-2.5 font-bold">File</th>
+                <th className="border-r px-3 py-2.5 font-bold">Người tạo</th>
+                <th className="border-r px-3 py-2.5 font-bold">Ngày tạo</th>
+                <th className="px-3 py-2.5 text-center font-bold">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {visibleExpenses.map((row) => (
+                <tr key={row.id} className="align-top hover:bg-gray-50/80">
+                  <td className="border-r px-3 py-2.5 font-medium text-gray-800">{row.spentAt}</td>
+                  <td className="border-r px-3 py-2.5">
+                    <div className="font-bold text-gray-800">{row.category}</div>
+                    {row.note && <div className="mt-0.5 text-[11px] text-gray-500">{row.note}</div>}
+                  </td>
+                  <td className="border-r px-3 py-2.5 text-gray-700">{row.invoiceNo || '—'}</td>
+                  <td className="border-r px-3 py-2.5 text-gray-700">{row.vendor || '—'}</td>
+                  <td className="border-r px-3 py-2.5 font-semibold text-gray-900">{formatVnd(row.amount)}</td>
+                  <td className="border-r px-3 py-2.5">
+                    {row.fileUrl ? (
+                      <button type="button" onClick={() => setPreviewExpense(row)} className="font-medium text-[#00A859] hover:underline">
+                        {row.fileName}
+                      </button>
+                    ) : (
+                      <span className="text-gray-600">{row.fileName}</span>
+                    )}
+                  </td>
+                  <td className="border-r px-3 py-2.5 font-medium text-gray-700">{row.createdBy || '—'}</td>
+                  <td className="border-r px-3 py-2.5 font-medium text-gray-700">{row.createdAt || '—'}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      {row.fileUrl && (
+                        <button type="button" onClick={() => setPreviewExpense(row)} className="rounded p-1 text-gray-500 hover:text-blue-600" title="Xem file">
+                          <Eye size={14} />
+                        </button>
+                      )}
+                      {canEditVehicle && (
+                        <button type="button" onClick={() => openExpenseEditor(row)} className="rounded p-1 text-gray-500 hover:text-[#00A859]" title="Sửa chi phí">
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {canEditVehicle && (
+                        <button type="button" onClick={() => handleDeleteExpense(row.id)} className="rounded p-1 text-gray-500 hover:text-red-500" title="Xóa chi phí">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {visibleExpenses.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-3 py-8 text-center text-gray-400">Chưa có chứng từ chi phí.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] text-gray-400">Chứng từ được lưu trên trình duyệt này, gồm file đính kèm. Mỗi file tối đa 1,5 MB. Định dạng PDF, JPG, PNG.</p>
+      </Section>
+      )}
+
+      <Section title="Thiết bị theo dõi" number={8} id="sec-device" icon={<Radio size={16} />}>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <Label>Thiết bị GPS (IMEI)</Label>
@@ -2360,7 +2598,7 @@ const PartnerVehicleDetail: React.FC = () => {
       {!isCreate && (
         <Section
           title="Lịch sử hành trình & Camera trước xe"
-          number={8}
+          number={9}
           id="sec-journey"
           icon={<MapPin size={16} />}
           rightNode={(
@@ -2688,7 +2926,7 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* KHỐI 3: CÔNG CỤ THEO XE VÀ TÌNH TRẠNG (Khớp ảnh 1.2 & 1.3 - Ẩn ở SCR-04 theo FDD) */}
       {!isCreate && (
-        <Section title="Công cụ theo xe và tình trạng" number={9} id="sec-tools" icon={<Wrench size={16} />}>
+        <Section title="Công cụ theo xe và tình trạng" number={10} id="sec-tools" icon={<Wrench size={16} />}>
           {/* Badges đếm */}
           <div className="mb-3 flex items-center gap-2">
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
@@ -2777,7 +3015,7 @@ const PartnerVehicleDetail: React.FC = () => {
 
       {/* KHỐI 4: LỊCH SỬ THAY ĐỔI & NHẬT KÝ HOẠT ĐỘNG (B-HISTORY - Khớp FDD FL-M1-01) */}
       {!isCreate && (
-        <Section title="Lịch sử thay đổi & Nhật ký hoạt động (Audit Log)" number={10} id="sec-audit" icon={<History size={16} />}>
+        <Section title="Lịch sử thay đổi & Nhật ký hoạt động (Audit Log)" number={11} id="sec-audit" icon={<History size={16} />}>
           <div className="mb-3 flex flex-wrap gap-1.5">
             {AUDIT_FILTERS.map((ft) => (
               <button
@@ -2886,17 +3124,12 @@ const PartnerVehicleDetail: React.FC = () => {
             <label className={partnerLabelClass}>
               Lý do ngừng hoạt động <span className="text-red-500">*</span>
             </label>
-            <select
+            <AppSelect
               value={inactivateReason}
-              onChange={(e) => setInactivateReason(e.target.value)}
-              className={inputClass}
-            >
-              <option value="Thanh lý xe">Thanh lý xe</option>
-              <option value="Bán xe sang nhượng">Bán xe sang nhượng</option>
-              <option value="Hỏng nặng không phục hồi">Hỏng nặng không phục hồi</option>
-              <option value="Chuyển mục đích sử dụng">Chuyển mục đích sử dụng</option>
-              <option value="Khác">Khác</option>
-            </select>
+              onChange={setInactivateReason}
+              className={modalSelectClass}
+              options={['Thanh lý xe', 'Bán xe sang nhượng', 'Hỏng nặng không phục hồi', 'Chuyển mục đích sử dụng', 'Khác'].map((item) => ({ value: item, label: item }))}
+            />
           </div>
 
           <div>
@@ -2955,18 +3188,13 @@ const PartnerVehicleDetail: React.FC = () => {
             <label className={partnerLabelClass}>
               Đến trạm tiếp nhận <span className="text-red-500">*</span>
             </label>
-            <select
+            <AppSelect
               value={transferTo}
-              onChange={(e) => setTransferTo(e.target.value)}
-              className={inputClass}
-            >
-              <option value="">-- Chọn trạm tiếp nhận --</option>
-              {STATION_OPTIONS.filter((s) => s.id !== vehicle.stationId).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+              placeholder="-- Chọn trạm tiếp nhận --"
+              onChange={setTransferTo}
+              className={modalSelectClass}
+              options={STATION_OPTIONS.filter((s) => s.id !== vehicle.stationId).map((s) => ({ value: s.id, label: s.name }))}
+            />
           </div>
 
           {/* Dịch vụ giữ lại tại trạm đích (UI-58) */}
@@ -3180,30 +3408,27 @@ const PartnerVehicleDetail: React.FC = () => {
                 <label className={partnerLabelClass}>
                   Nhóm lý do <span className="text-red-500">*</span>
                 </label>
-                <select
+                <AppSelect
                   value={statusReasonCode}
-                  onChange={(e) => setStatusReasonCode(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">-- Chọn nhóm lý do --</option>
-                  {targetStatus === 'STOPPED' ? (
-                    <>
-                      <option value="NO_DRIVER">Thiếu tài xế</option>
-                      <option value="SCHEDULED_REST">Nghỉ theo lịch</option>
-                      <option value="DOC_EXPIRED">Hết hạn giấy tờ</option>
-                      <option value="OTHER">Khác</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="ENGINE">Hỏng động cơ</option>
-                      <option value="CRANE_SLIDE">Hỏng cẩu / sàn trượt</option>
-                      <option value="TIRE">Hỏng lốp xe</option>
-                      <option value="MAINTENANCE">Bảo dưỡng định kỳ</option>
-                      <option value="ACCIDENT">Tai nạn va chạm</option>
-                      <option value="OTHER">Khác</option>
-                    </>
-                  )}
-                </select>
+                  placeholder="-- Chọn nhóm lý do --"
+                  onChange={setStatusReasonCode}
+                  className={modalSelectClass}
+                  options={targetStatus === 'STOPPED'
+                    ? [
+                        { value: 'NO_DRIVER', label: 'Thiếu tài xế' },
+                        { value: 'SCHEDULED_REST', label: 'Nghỉ theo lịch' },
+                        { value: 'DOC_EXPIRED', label: 'Hết hạn giấy tờ' },
+                        { value: 'OTHER', label: 'Khác' },
+                      ]
+                    : [
+                        { value: 'ENGINE', label: 'Hỏng động cơ' },
+                        { value: 'CRANE_SLIDE', label: 'Hỏng cẩu / sàn trượt' },
+                        { value: 'TIRE', label: 'Hỏng lốp xe' },
+                        { value: 'MAINTENANCE', label: 'Bảo dưỡng định kỳ' },
+                        { value: 'ACCIDENT', label: 'Tai nạn va chạm' },
+                        { value: 'OTHER', label: 'Khác' },
+                      ]}
+                />
               </div>
 
               <div>
@@ -3276,20 +3501,16 @@ const PartnerVehicleDetail: React.FC = () => {
           </div>
           <div>
             <label className={partnerLabelClass}>Tài xế chính</label>
-            <select
+            <AppSelect
               value={pairPrimaryId}
-              onChange={(e) => {
-                const next = e.target.value;
+              placeholder="Chọn tài xế chính"
+              onChange={(next) => {
                 setPairPrimaryId(next);
                 setPairSecondaryIds((prev) => prev.filter((id) => id !== next));
               }}
-              className={inputClass}
-            >
-              <option value="">Chọn tài xế chính</option>
-              {driversAtStation(vehicle.stationId).map((d) => (
-                <option key={d.id} value={d.id}>{d.fullname}</option>
-              ))}
-            </select>
+              className={modalSelectClass}
+              options={driversAtStation(vehicle.stationId).map((d) => ({ value: d.id, label: d.fullname }))}
+            />
           </div>
           <div>
             <label className={partnerLabelClass}>Tài xế phụ</label>
@@ -3384,17 +3605,12 @@ const PartnerVehicleDetail: React.FC = () => {
             <label className={partnerLabelClass}>
               Lý do kết thúc ghép <span className="text-red-500">*</span>
             </label>
-            <select
+            <AppSelect
               value={unpairReason}
-              onChange={(e) => setUnpairReason(e.target.value)}
-              className={inputClass}
-            >
-              <option value="Chuyển xe khác / đổi ca trực">Chuyển xe khác / đổi ca trực</option>
-              <option value="Tài xế nghỉ phép / ốm">Tài xế nghỉ phép / ốm</option>
-              <option value="Điều chuyển trạm">Điều chuyển trạm</option>
-              <option value="Nghỉ việc / chấm dứt hợp đồng">Nghỉ việc / chấm dứt hợp đồng</option>
-              <option value="Khác">Khác</option>
-            </select>
+              onChange={setUnpairReason}
+              className={modalSelectClass}
+              options={['Chuyển xe khác / đổi ca trực', 'Tài xế nghỉ phép / ốm', 'Điều chuyển trạm', 'Nghỉ việc / chấm dứt hợp đồng', 'Khác'].map((item) => ({ value: item, label: item }))}
+            />
           </div>
 
           <div>
@@ -3448,27 +3664,27 @@ const PartnerVehicleDetail: React.FC = () => {
 
           {/* Thêm nhanh từ danh mục Đang dùng chưa có trên xe (UI-T30) */}
           <div className="flex gap-2">
-            <select
+            <div className="min-w-0 flex-1">
+            <AppSelect
               value={selectedToolToAdd}
-              onChange={(e) => {
-                setSelectedToolToAdd(e.target.value);
+              placeholder="-- Chọn công cụ từ danh mục để bổ sung --"
+              onChange={(value) => {
+                setSelectedToolToAdd(value);
                 setToolModalError('');
               }}
-              className={inputClass}
-            >
-              <option value="">-- Chọn công cụ từ danh mục để bổ sung --</option>
-              {MASTER_TOOL_CATALOG
+              className={modalSelectClass}
+              options={MASTER_TOOL_CATALOG
                 .filter(
                   (c) =>
                     c.status === 'ACTIVE' &&
                     !tempTools.some((t) => t.name.toLowerCase() === c.name.toLowerCase())
                 )
-                .map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.code} - {c.name} (Tiêu chuẩn: {c.standardQty} {c.unit})
-                  </option>
-                ))}
-            </select>
+                .map((c) => ({
+                  value: c.name,
+                  label: `${c.code} - ${c.name} (Tiêu chuẩn: ${c.standardQty} ${c.unit})`,
+                }))}
+            />
+            </div>
             <button
               type="button"
               disabled={!selectedToolToAdd}
@@ -3538,10 +3754,10 @@ const PartnerVehicleDetail: React.FC = () => {
                         {standardQtyOf(t.name)} {t.unit ?? 'cái'}
                       </td>
                       <td className="p-2 text-center">
-                        <select
+                        <AppSelect
                           value={cond}
-                          onChange={(e) => {
-                            const condition = e.target.value as 'GOOD' | 'BROKEN' | 'MISSING';
+                          onChange={(value) => {
+                            const condition = value as 'GOOD' | 'BROKEN' | 'MISSING';
                             const std = standardQtyOf(t.name);
                             setTempTools((prev) =>
                               prev.map((item, i) => {
@@ -3563,18 +3779,19 @@ const PartnerVehicleDetail: React.FC = () => {
                             );
                             setToolModalError('');
                           }}
-                          className={`text-xs font-bold px-2 py-1 rounded border outline-none ${
+                          className={`!h-8 !text-xs !font-bold ${
                             toolReady(t)
-                              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                              ? '!text-emerald-700 !bg-emerald-50 !border-emerald-200'
                               : cond === 'BROKEN'
-                              ? 'text-red-700 bg-red-50 border-red-200'
-                              : 'text-amber-700 bg-amber-50 border-amber-200'
+                              ? '!text-red-700 !bg-red-50 !border-red-200'
+                              : '!text-amber-700 !bg-amber-50 !border-amber-200'
                           }`}
-                        >
-                          <option value="GOOD">Tốt (Đủ tiêu chuẩn)</option>
-                          <option value="BROKEN">Hỏng</option>
-                          <option value="MISSING">Thiếu (Chưa đủ)</option>
-                        </select>
+                          options={[
+                            { value: 'GOOD', label: 'Tốt (Đủ tiêu chuẩn)' },
+                            { value: 'BROKEN', label: 'Hỏng' },
+                            { value: 'MISSING', label: 'Thiếu (Chưa đủ)' },
+                          ]}
+                        />
                         {toolQtyOf(t) < standardQtyOf(t.name) && cond !== 'BROKEN' && (
                           <div className="text-[10px] text-amber-600 font-semibold mt-0.5 whitespace-nowrap">
                             Thiếu {standardQtyOf(t.name) - toolQtyOf(t)}
@@ -3627,6 +3844,104 @@ const PartnerVehicleDetail: React.FC = () => {
     </>
   )}
 
+      <PartnerModal
+        open={expenseOpen}
+        title={editingExpenseId ? 'Sửa chi phí vận hành' : 'Thêm chi phí vận hành'}
+        icon={<DollarSign size={20} />}
+        onClose={() => setExpenseOpen(false)}
+        footer={(
+          <>
+            <button type="button" onClick={() => setExpenseOpen(false)} className={partnerBtnNeutral}>Hủy</button>
+            <button type="button" onClick={handleSaveExpense} className={partnerBtnBrand}>Lưu chi phí</button>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <div>
+            <label className={partnerLabelClass}>Loại chi phí</label>
+            <AppSelect
+              value={expenseForm.category}
+              onChange={(value) => setExpenseForm((prev) => ({ ...prev, category: value as VehicleExpenseCategory }))}
+              className={modalSelectClass}
+              options={VEHICLE_EXPENSE_CATEGORIES.map((category) => ({ value: category, label: category }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={partnerLabelClass}>Ngày chi <span className="text-red-500">*</span></label>
+              <input
+                type="date"
+                value={expenseForm.spentAt}
+                onChange={(e) => setExpenseForm((prev) => ({ ...prev, spentAt: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={partnerLabelClass}>Số tiền (đồng) <span className="text-red-500">*</span></label>
+              <input
+                inputMode="numeric"
+                value={expenseForm.amount}
+                onChange={(e) => setExpenseForm((prev) => ({ ...prev, amount: e.target.value.replace(/[^\d]/g, '') }))}
+                placeholder="1250000"
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={partnerLabelClass}>Nơi chi</label>
+              <input
+                value={expenseForm.vendor}
+                onChange={(e) => setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))}
+                placeholder="Petrolimex Hoàng Mai"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={partnerLabelClass}>Số chứng từ</label>
+              <input
+                value={expenseForm.invoiceNo}
+                onChange={(e) => setExpenseForm((prev) => ({ ...prev, invoiceNo: e.target.value }))}
+                placeholder="HD-1026"
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <div>
+            <label className={partnerLabelClass}>Ghi chú</label>
+            <input
+              value={expenseForm.note}
+              onChange={(e) => setExpenseForm((prev) => ({ ...prev, note: e.target.value }))}
+              placeholder="Số lít, tuyến đường, nội dung sửa"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={partnerLabelClass}>File chứng từ <span className="text-red-500">*</span></label>
+            <FileDrop accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*" file={expenseFile} hint={editingExpenseId ? 'Chọn file mới nếu muốn thay. PDF, JPG hoặc PNG, tối đa 1,5 MB' : 'PDF, JPG hoặc PNG, tối đa 1,5 MB'} onFile={setExpenseFile} />
+          </div>
+        </div>
+      </PartnerModal>
+
+      <PartnerModal
+        open={!!previewExpense}
+        title={previewExpense?.fileName ?? 'Chứng từ'}
+        icon={<FileText size={20} />}
+        wide
+        onClose={() => setPreviewExpense(null)}
+        footer={(
+          <button type="button" onClick={() => setPreviewExpense(null)} className={partnerBtnNeutral}>Đóng</button>
+        )}
+      >
+        {previewExpense?.fileUrl && previewExpense.fileMime.startsWith('image/') ? (
+          <img src={previewExpense.fileUrl} alt={previewExpense.fileName} className="max-h-[60vh] w-full object-contain" />
+        ) : previewExpense?.fileUrl ? (
+          <iframe title={previewExpense.fileName} src={previewExpense.fileUrl} className="h-[60vh] w-full rounded-lg border" />
+        ) : (
+          <p className="text-sm text-gray-600">Chưa có file đính kèm.</p>
+        )}
+      </PartnerModal>
+
       {/* DLG-03: THÊM / SỬA GIẤY TỜ */}
       <PartnerModal
         open={docModalOpen}
@@ -3668,16 +3983,17 @@ const PartnerVehicleDetail: React.FC = () => {
 
           <div>
             <label className={partnerLabelClass}>Loại giấy tờ</label>
-            <select
+            <AppSelect
               value={docForm.type}
-              onChange={(e) => setDocForm({ ...docForm, type: e.target.value })}
-              className={inputClass}
-            >
-              <option value="Đăng kiểm">Đăng kiểm (bắt buộc)</option>
-              <option value="BH TNDS">BH TNDS (bắt buộc)</option>
-              <option value="GPLH">Giấy phép lưu hành (bắt buộc)</option>
-              <option value="BH vật chất">BH vật chất (tùy chọn)</option>
-            </select>
+              onChange={(value) => setDocForm({ ...docForm, type: value })}
+              className={modalSelectClass}
+              options={[
+                { value: 'Đăng kiểm', label: 'Đăng kiểm (bắt buộc)' },
+                { value: 'BH TNDS', label: 'BH TNDS (bắt buộc)' },
+                { value: 'GPLH', label: 'Giấy phép lưu hành (bắt buộc)' },
+                { value: 'BH vật chất', label: 'BH vật chất (tùy chọn)' },
+              ]}
+            />
           </div>
 
           <div>
@@ -3773,18 +4089,12 @@ const PartnerVehicleDetail: React.FC = () => {
         <div className="space-y-3.5 text-xs">
           <div>
             <label className={partnerLabelClass}>Góc chụp / Nhãn ảnh</label>
-            <select
+            <AppSelect
               value={photoLabel}
-              onChange={(e) => setPhotoLabel(e.target.value)}
-              className={inputClass}
-            >
-              <option value="Góc trước">Góc trước</option>
-              <option value="Góc sau">Góc sau</option>
-              <option value="Bên trái">Bên trái</option>
-              <option value="Bên phải">Bên phải</option>
-              <option value="Nội thất">Nội thất</option>
-              <option value="Ảnh khác">Ảnh khác</option>
-            </select>
+              onChange={setPhotoLabel}
+              className={modalSelectClass}
+              options={['Góc trước', 'Góc sau', 'Bên trái', 'Bên phải', 'Nội thất', 'Ảnh khác'].map((item) => ({ value: item, label: item }))}
+            />
           </div>
 
           <div>

@@ -276,6 +276,35 @@ export interface VehicleDocument {
   fileUrl?: string;
 }
 
+/** Chứng từ chi phí vận hành xe */
+export const VEHICLE_EXPENSE_CATEGORIES = [
+  'Hóa đơn xăng xe',
+  'Chi phí cầu đường',
+  'Phí bến bãi',
+  'Sửa chữa phát sinh',
+  'Phụ tùng và lốp',
+  'Rửa xe',
+  'Chi phí khác',
+] as const;
+
+export type VehicleExpenseCategory = (typeof VEHICLE_EXPENSE_CATEGORIES)[number];
+
+export interface VehicleExpense {
+  id: string;
+  vehicleId: string;
+  category: VehicleExpenseCategory;
+  spentAt: string;
+  amount: number;
+  vendor: string;
+  invoiceNo: string;
+  note: string;
+  fileName: string;
+  fileMime: string;
+  fileUrl: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface VehicleTransferHistory {
   id: string;
   vehicleId: string;
@@ -810,6 +839,90 @@ export const registerVehicle = (v: VehicleRecord) => {
 export const saveVehicleMedia = (id: string, photos: VehiclePhoto[], docs: VehicleDocument[]) => {
   VEHICLE_PHOTOS[id] = photos;
   VEHICLE_DOCUMENTS[id] = docs;
+};
+
+const VEHICLE_EXPENSE_KEY = 'rsa-vehicle-expenses';
+
+const VEHICLE_EXPENSE_SEED: Record<string, VehicleExpense[]> = {
+  v1: [
+    {
+      id: 'ex-v1-1',
+      vehicleId: 'v1',
+      category: 'Hóa đơn xăng xe',
+      spentAt: '18/10/2026',
+      amount: 1250000,
+      vendor: 'Petrolimex Hoàng Mai',
+      invoiceNo: 'HD-XANG-1026',
+      note: 'Đổ 42 lít dầu DO',
+      fileName: 'hoa-don-xang-29C12345.pdf',
+      fileMime: 'application/pdf',
+      fileUrl: '',
+      createdAt: '18/10/2026 09:20',
+      createdBy: 'Vũ Thanh Hà',
+    },
+    {
+      id: 'ex-v1-2',
+      vehicleId: 'v1',
+      category: 'Chi phí cầu đường',
+      spentAt: '12/10/2026',
+      amount: 186000,
+      vendor: 'VETC ePass',
+      invoiceNo: 'VT-1210-8841',
+      note: 'Cao tốc Pháp Vân – Cầu Giẽ',
+      fileName: 'cuoc-cau-duong-29C12345.pdf',
+      fileMime: 'application/pdf',
+      fileUrl: '',
+      createdAt: '12/10/2026 16:05',
+      createdBy: 'Vũ Thanh Hà',
+    },
+    {
+      id: 'ex-v1-3',
+      vehicleId: 'v1',
+      category: 'Rửa xe',
+      spentAt: '05/10/2026',
+      amount: 150000,
+      vendor: 'Rửa xe Trạm Hoàng Mai',
+      invoiceNo: 'RX-050',
+      note: '',
+      fileName: 'phieu-rua-xe-29C12345.jpg',
+      fileMime: 'image/jpeg',
+      fileUrl: '',
+      createdAt: '05/10/2026 18:10',
+      createdBy: 'Ngô Đức Anh',
+    },
+  ],
+};
+
+let vehicleExpenseCache: Record<string, VehicleExpense[]> | null = null;
+
+const loadVehicleExpenses = (): Record<string, VehicleExpense[]> => {
+  if (vehicleExpenseCache) return vehicleExpenseCache;
+  try {
+    const raw = localStorage.getItem(VEHICLE_EXPENSE_KEY);
+    if (raw) {
+      vehicleExpenseCache = JSON.parse(raw) as Record<string, VehicleExpense[]>;
+      return vehicleExpenseCache;
+    }
+  } catch {
+    /* dùng dữ liệu mẫu */
+  }
+  vehicleExpenseCache = { ...VEHICLE_EXPENSE_SEED };
+  return vehicleExpenseCache;
+};
+
+export const expensesOfVehicle = (vehicleId: string) => loadVehicleExpenses()[vehicleId] ?? [];
+
+/** Ghi chứng từ chi phí của một xe. Trả về false nếu trình duyệt từ chối dung lượng. */
+export const saveVehicleExpenses = (vehicleId: string, rows: VehicleExpense[]) => {
+  const all = loadVehicleExpenses();
+  all[vehicleId] = rows;
+  vehicleExpenseCache = all;
+  try {
+    localStorage.setItem(VEHICLE_EXPENSE_KEY, JSON.stringify(all));
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const updateVehicle = (id: string, patch: Partial<VehicleRecord>) => {
