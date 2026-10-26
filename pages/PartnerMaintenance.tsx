@@ -2,45 +2,30 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
-  ArrowRight,
   Calendar,
+  Check,
   CheckCircle2,
-  ChevronRight,
   Clock,
   Download,
   Eye,
   FileSpreadsheet,
   FileText,
-  Filter,
-  History,
-  Info,
-  Layers,
-  MapPin,
   Pencil,
   Plus,
   RefreshCw,
-  Search,
-  Trash2,
+  RotateCcw,
   Truck,
-  User,
   Wrench,
   X,
-  XCircle,
-  ClipboardList,
   CheckSquare,
   AlertCircle,
-  FileCheck,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PartnerScopeBar, { getStoredPersona } from '../components/PartnerScopeBar';
+import AppSelect from '../shared/AppSelect';
 import {
   FileDrop,
   PartnerModal,
-  partnerBtnBrand,
-  partnerBtnDanger,
-  partnerBtnNeutral,
-  partnerInputClass as inputClass,
-  partnerLabelClass,
 } from '../components/PartnerModal';
 import {
   PARTNER_STAFF,
@@ -48,7 +33,6 @@ import {
   VEHICLES,
   VEHICLE_TYPE_LABEL,
   driverName,
-  formatVnd,
   inScope,
   orgName,
   updateVehicle,
@@ -57,6 +41,31 @@ import {
 } from '../data/partnerRescueMockData';
 
 // --- DATA TYPES ---
+
+const partnerLabelClass = 'mb-1 block text-xs font-semibold leading-4 text-gray-700';
+const inputClass = 'w-full h-9 rounded-lg border border-gray-300 bg-white px-2.5 text-xs font-semibold text-gray-800 outline-none placeholder:font-medium placeholder:text-gray-400 focus:border-[#0E8F47]';
+const partnerBtnNeutral = 'flex-1 inline-flex items-center justify-center h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-800 hover:bg-gray-50';
+const partnerBtnBrand = 'flex-1 inline-flex items-center justify-center h-9 px-3 rounded-lg bg-[#0E8F47] text-xs font-bold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50';
+const modalSelectClass = '!h-9 !rounded-lg !border-gray-300 !bg-white !px-2.5 !text-xs !font-semibold';
+
+const VEHICLE_SELECT_OPTIONS = VEHICLES.map((v) => ({
+  value: v.id,
+  label: `${v.plate} - ${v.brand} ${v.modelLine} (${orgName(v.stationId)})`,
+}));
+
+const PRIORITY_OPTIONS = [
+  { value: 'EMERGENCY', label: 'Khẩn cấp (Dừng xe ngay)' },
+  { value: 'HIGH', label: 'Cao (Khắc phục trong 24h)' },
+  { value: 'NORMAL', label: 'Bình thường (Theo lịch)' },
+];
+
+const ISSUE_CATEGORY_OPTIONS = [
+  { value: 'HYDRAULIC_CRANE', label: 'Cẩu & Ray sàn trượt thủy lực' },
+  { value: 'BRAKE_TIRE', label: 'Lốp & Hệ thống phanh' },
+  { value: 'ENGINE', label: 'Động cơ & Hộp số' },
+  { value: 'ELECTRICAL', label: 'Hệ thống điện & Đèn cứu hộ' },
+  { value: 'OTHER', label: 'Bộ phận khác' },
+];
 
 export type MaintenanceTabKey = 'schedule' | 'requests' | 'orders' | 'history';
 
@@ -449,6 +458,7 @@ const PartnerMaintenance: React.FC = () => {
 
   const handleTabChange = (tab: MaintenanceTabKey) => {
     setCurrentTab(tab);
+    setStatusFilter('ALL');
     const params = new URLSearchParams(location.search);
     params.set('tab', tab);
     navigate({ pathname: '/partner/maintenance', search: `?${params.toString()}` }, { replace: true });
@@ -528,23 +538,6 @@ const PartnerMaintenance: React.FC = () => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3500);
   };
-
-  // KPIs
-  const kpiStats = useMemo(() => {
-    const overdueCount = schedules.filter((s) => s.status === 'OVERDUE').length;
-    const dueSoonCount = schedules.filter((s) => s.status === 'DUE_SOON').length;
-    const pendingReqCount = requests.filter((r) => r.status === 'PENDING').length;
-    const inProgressOrders = workOrders.filter((w) => w.status === 'IN_PROGRESS' || w.status === 'WAITING_PARTS').length;
-    const totalMonthCost = historyList.reduce((acc, h) => acc + h.cost, 0);
-
-    return {
-      urgentSchedules: overdueCount + dueSoonCount,
-      overdueCount,
-      pendingReqCount,
-      inProgressOrders,
-      totalMonthCost,
-    };
-  }, [schedules, requests, workOrders, historyList]);
 
   // Scope filter helper
   const isItemInScope = (stationId: string) => inScope(persona, stationId);
@@ -673,6 +666,11 @@ const PartnerMaintenance: React.FC = () => {
       prev.map((r) => (r.id === reqId ? { ...r, status: 'REJECTED', rejectReason: reason } : r))
     );
     triggerToast('Đã từ chối yêu cầu sửa chữa.');
+  };
+
+  const itemLines = workOrderForm.itemsText.split('\n');
+  const setItemLines = (lines: string[]) => {
+    setWorkOrderForm((prev) => ({ ...prev, itemsText: (lines.length ? lines : ['']).join('\n') }));
   };
 
   // Lệnh: Lưu tạo mới
@@ -817,37 +815,37 @@ const PartnerMaintenance: React.FC = () => {
     triggerToast('Đã xuất file Excel lịch sử bảo dưỡng');
   };
 
+  const query = searchTerm.trim().toLowerCase();
+  const stationMatch = (stationId: string) => selectedStation === 'ALL' || stationId === selectedStation;
+  const statusMatch = (status: string) => statusFilter === 'ALL' || status === statusFilter;
+  const textMatch = (...parts: string[]) => !query || parts.some((part) => part.toLowerCase().includes(query));
+  const visibleSchedules = schedules.filter((s) => isItemInScope(s.stationId) && stationMatch(s.stationId) && statusMatch(s.status) && textMatch(s.plate, s.brandModel, s.driverName));
+  const visibleRequests = requests.filter((r) => isItemInScope(r.stationId) && stationMatch(r.stationId) && statusMatch(r.status) && textMatch(r.id, r.plate, r.title, r.requesterName));
+  const visibleOrders = workOrders.filter((w) => isItemInScope(w.stationId) && stationMatch(w.stationId) && statusMatch(w.status) && textMatch(w.id, w.plate, w.typeName, w.garageName));
+  const visibleHistory = historyList.filter((h) => isItemInScope(h.stationId) && stationMatch(h.stationId) && textMatch(h.code, h.plate, h.typeName, h.garageName));
+  const resultCount = currentTab === 'requests' ? visibleRequests.length : currentTab === 'orders' ? visibleOrders.length : currentTab === 'history' ? visibleHistory.length : visibleSchedules.length;
+  const chipCount = (tab: MaintenanceTabKey) => {
+    const rows = tab === 'requests' ? requests : tab === 'orders' ? workOrders : tab === 'history' ? historyList : schedules;
+    return rows.filter((row) => isItemInScope(row.stationId) && stationMatch(row.stationId)).length;
+  };
+
   return (
-    <div className="space-y-4">
-      <PartnerScopeBar persona={persona} onChange={setPersona} />
-      {/* Toast Notification */}
+    <div className="space-y-4 animate-in fade-in duration-300 w-full min-w-0 max-w-full">
       {toastMsg && (
-        <div className="fixed top-4 right-4 z-[999] flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg animate-bounce">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-xl">
           <CheckCircle2 size={16} />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-white p-4 rounded-xl border shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-50 text-[#00A859] rounded-lg">
-              <Wrench size={22} />
-            </div>
-            <div>
-              <h1 className="text-lg font-black text-gray-800 tracking-tight">
-                Quản lý bảo dưỡng & sửa chữa phương tiện
-              </h1>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Theo dõi mốc ODO chu kỳ, tiếp nhận báo hỏng sự cố từ lái xe, phát hành lệnh xưởng và lưu trữ chi phí TCO
-              </p>
-            </div>
-          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Bảo dưỡng & Sửa chữa</h1>
+          <p className="mt-1 text-[13px] text-gray-500">
+            Phạm vi: {persona.label} · Lịch bảo dưỡng, yêu cầu sửa chữa, lệnh xưởng và lịch sử chi phí
+          </p>
         </div>
-
-        {/* Action button toolbar */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           {currentTab === 'schedule' && (
             <button
               type="button"
@@ -856,7 +854,7 @@ const PartnerMaintenance: React.FC = () => {
                 if (overdue) handleQuickCreateOrderFromSchedule(overdue);
                 else setWorkOrderModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#00A859] text-white text-xs font-bold hover:bg-green-700 shadow-sm transition"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0E8F47] px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
             >
               <Plus size={14} />
               Lập lệnh bảo dưỡng
@@ -867,7 +865,7 @@ const PartnerMaintenance: React.FC = () => {
             <button
               type="button"
               onClick={() => setRequestModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#00A859] text-white text-xs font-bold hover:bg-green-700 shadow-sm transition"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0E8F47] px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
             >
               <Plus size={14} />
               Tạo yêu cầu sửa chữa
@@ -878,7 +876,7 @@ const PartnerMaintenance: React.FC = () => {
             <button
               type="button"
               onClick={() => setWorkOrderModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#00A859] text-white text-xs font-bold hover:bg-green-700 shadow-sm transition"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0E8F47] px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
             >
               <Plus size={14} />
               Tạo lệnh sửa chữa / xưởng
@@ -889,236 +887,122 @@ const PartnerMaintenance: React.FC = () => {
             <button
               type="button"
               onClick={handleExportHistoryExcel}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
             >
-              <FileSpreadsheet size={14} className="text-emerald-600" />
-              Xuất Excel lịch sử
+              <FileSpreadsheet size={15} />
+              Xuất Excel
             </button>
           )}
         </div>
       </div>
 
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div
-          onClick={() => handleTabChange('schedule')}
-          className={`p-3.5 rounded-xl border bg-white shadow-sm cursor-pointer hover:border-amber-400 transition ${
-            currentTab === 'schedule' ? 'ring-2 ring-amber-400' : ''
-          }`}
-        >
-          <div className="flex items-center justify-between text-gray-500 text-xs">
-            <span>Xe đến / quá hạn</span>
-            <AlertTriangle size={16} className="text-amber-500" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-amber-600">{kpiStats.urgentSchedules}</span>
-            <span className="text-[11px] text-gray-500">
-              ({kpiStats.overdueCount} xe quá hạn)
-            </span>
-          </div>
-          <div className="text-[10px] text-amber-700 font-medium mt-1">Cần lập lịch đưa vào xưởng</div>
-        </div>
+      <PartnerScopeBar persona={persona} onChange={setPersona} />
 
-        <div
-          onClick={() => handleTabChange('requests')}
-          className={`p-3.5 rounded-xl border bg-white shadow-sm cursor-pointer hover:border-orange-400 transition ${
-            currentTab === 'requests' ? 'ring-2 ring-orange-400' : ''
-          }`}
-        >
-          <div className="flex items-center justify-between text-gray-500 text-xs">
-            <span>Yêu cầu sửa chữa chờ duyệt</span>
-            <ClipboardList size={16} className="text-orange-500" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-orange-600">{kpiStats.pendingReqCount}</span>
-            <span className="text-[11px] text-gray-500">từ tài xế</span>
-          </div>
-          <div className="text-[10px] text-orange-700 font-medium mt-1">Sự cố cẩu / lốp / sàn trượt</div>
-        </div>
-
-        <div
-          onClick={() => handleTabChange('orders')}
-          className={`p-3.5 rounded-xl border bg-white shadow-sm cursor-pointer hover:border-blue-400 transition ${
-            currentTab === 'orders' ? 'ring-2 ring-blue-400' : ''
-          }`}
-        >
-          <div className="flex items-center justify-between text-gray-500 text-xs">
-            <span>Xe đang tại xưởng (Downtime)</span>
-            <Wrench size={16} className="text-blue-500" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-blue-600">{kpiStats.inProgressOrders}</span>
-            <span className="text-[11px] text-gray-500">xe tạm dừng</span>
-          </div>
-          <div className="text-[10px] text-blue-700 font-medium mt-1">Đang thực hiện sửa chữa</div>
-        </div>
-
-        <div
-          onClick={() => handleTabChange('history')}
-          className={`p-3.5 rounded-xl border bg-white shadow-sm cursor-pointer hover:border-emerald-400 transition ${
-            currentTab === 'history' ? 'ring-2 ring-emerald-400' : ''
-          }`}
-        >
-          <div className="flex items-center justify-between text-gray-500 text-xs">
-            <span>Chi phí bảo dưỡng tháng</span>
-            <FileCheck size={16} className="text-emerald-500" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-xl font-black text-emerald-700">
-              {formatVnd(kpiStats.totalMonthCost)}
-            </span>
-          </div>
-          <div className="text-[10px] text-emerald-700 font-medium mt-1">Đã nghiệm thu hóa đơn</div>
-        </div>
-      </div>
-
-      {/* Main Container with 4 Tabs */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        {/* Tab Headers */}
-        <div className="flex border-b bg-gray-50/70 px-4 pt-2 gap-2 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => handleTabChange('schedule')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-lg transition border-b-2 whitespace-nowrap ${
-              currentTab === 'schedule'
-                ? 'bg-white text-[#00A859] border-[#00A859] shadow-sm'
-                : 'text-gray-600 border-transparent hover:text-gray-900'
-            }`}
-          >
-            <Calendar size={15} />
-            <span>Lịch bảo dưỡng</span>
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-              kpiStats.urgentSchedules > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
-            }`}>
-              {schedules.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleTabChange('requests')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-lg transition border-b-2 whitespace-nowrap ${
-              currentTab === 'requests'
-                ? 'bg-white text-[#00A859] border-[#00A859] shadow-sm'
-                : 'text-gray-600 border-transparent hover:text-gray-900'
-            }`}
-          >
-            <AlertTriangle size={15} />
-            <span>Yêu cầu sửa chữa</span>
-            {kpiStats.pendingReqCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 animate-pulse">
-                {kpiStats.pendingReqCount} mới
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleTabChange('orders')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-lg transition border-b-2 whitespace-nowrap ${
-              currentTab === 'orders'
-                ? 'bg-white text-[#00A859] border-[#00A859] shadow-sm'
-                : 'text-gray-600 border-transparent hover:text-gray-900'
-            }`}
-          >
-            <ClipboardList size={15} />
-            <span>Lệnh bảo dưỡng / sửa chữa</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-              {workOrders.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleTabChange('history')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-lg transition border-b-2 whitespace-nowrap ${
-              currentTab === 'history'
-                ? 'bg-white text-[#00A859] border-[#00A859] shadow-sm'
-                : 'text-gray-600 border-transparent hover:text-gray-900'
-            }`}
-          >
-            <History size={15} />
-            <span>Lịch sử bảo dưỡng</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-              {historyList.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Global Filter Bar */}
-        <div className="p-3 border-b bg-white flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Tìm biển số, dòng xe, gara, triệu chứng..."
-                className="w-full pl-8 pr-3 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-[#00A859]"
-              />
-            </div>
-
+      <section className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            Biển số / nội dung
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Biển số, gara, triệu chứng"
+              className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold normal-case tracking-normal text-gray-800 outline-none focus:border-[#0E8F47]"
+            />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            Trạm
             <select
               value={selectedStation}
               onChange={(e) => setSelectedStation(e.target.value)}
-              className="text-xs py-1.5 px-2.5 rounded-lg border bg-white text-gray-700"
+              className="w-full min-w-0 truncate rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold normal-case tracking-normal text-gray-800 outline-none focus:border-[#0E8F47]"
             >
-              <option value="ALL">-- Tất cả điểm trạm --</option>
+              <option value="ALL">Tất cả trạm</option>
               {STATION_OPTIONS.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name}
-                </option>
+                <option key={st.id} value={st.id}>{st.name}</option>
               ))}
             </select>
-
-            {currentTab === 'schedule' && (
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs py-1.5 px-2.5 rounded-lg border bg-white text-gray-700"
-              >
-                <option value="ALL">Tất cả tình trạng</option>
-                <option value="OVERDUE">🔴 Quá hạn bảo dưỡng</option>
-                <option value="DUE_SOON">🟡 Sắp đến hạn (&lt; 800 km)</option>
-                <option value="NORMAL">🟢 Bình thường</option>
-              </select>
-            )}
-
-            {currentTab === 'requests' && (
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs py-1.5 px-2.5 rounded-lg border bg-white text-gray-700"
-              >
-                <option value="ALL">Tất cả trạng thái</option>
-                <option value="PENDING">Chờ duyệt</option>
-                <option value="APPROVED">Đã duyệt (tạo lệnh)</option>
-                <option value="REJECTED">Đã từ chối</option>
-              </select>
-            )}
-
-            {currentTab === 'orders' && (
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs py-1.5 px-2.5 rounded-lg border bg-white text-gray-700"
-              >
-                <option value="ALL">Tất cả trạng thái lệnh</option>
-                <option value="IN_PROGRESS">Đang sửa chữa</option>
-                <option value="WAITING_PARTS">Chờ phụ tùng</option>
-                <option value="PENDING_INSPECTION">Chờ nghiệm thu</option>
-                <option value="COMPLETED">Đã hoàn thành</option>
-              </select>
-            )}
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            Tình trạng
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              disabled={currentTab === 'history'}
+              className="w-full min-w-0 truncate rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold normal-case tracking-normal text-gray-800 outline-none focus:border-[#0E8F47] disabled:bg-gray-50 disabled:text-gray-400"
+            >
+              <option value="ALL">Tất cả</option>
+              {currentTab === 'schedule' && (
+                <>
+                  <option value="OVERDUE">Quá hạn bảo dưỡng</option>
+                  <option value="DUE_SOON">Sắp đến hạn</option>
+                  <option value="NORMAL">Bình thường</option>
+                </>
+              )}
+              {currentTab === 'requests' && (
+                <>
+                  <option value="PENDING">Chờ duyệt</option>
+                  <option value="APPROVED">Đã duyệt</option>
+                  <option value="REJECTED">Đã từ chối</option>
+                </>
+              )}
+              {currentTab === 'orders' && (
+                <>
+                  <option value="IN_PROGRESS">Đang sửa chữa</option>
+                  <option value="WAITING_PARTS">Chờ phụ tùng</option>
+                  <option value="PENDING_INSPECTION">Chờ nghiệm thu</option>
+                  <option value="COMPLETED">Đã hoàn thành</option>
+                </>
+              )}
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {([
+              ['schedule', 'Lịch bảo dưỡng'],
+              ['requests', 'Yêu cầu sửa chữa'],
+              ['orders', 'Lệnh sửa chữa'],
+              ['history', 'Lịch sử'],
+            ] as const).map(([key, label]) => {
+              const active = currentTab === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleTabChange(key)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${active ? 'border-[#0E8F47] bg-emerald-50 text-[#0B6B37]' : 'border-gray-300 bg-white text-gray-600'}`}
+                >
+                  {label}
+                  <span className={`rounded-full px-1.5 text-[10px] ${active ? 'bg-[#0E8F47] text-white' : 'bg-gray-100 text-gray-600'}`}>{chipCount(key)}</span>
+                </button>
+              );
+            })}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedStation('ALL');
+              setStatusFilter('ALL');
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold"
+          >
+            <RotateCcw size={14} />
+            Xóa bộ lọc
+          </button>
+        </div>
+      </section>
+
+      <div className="border rounded-lg shadow-sm bg-white w-full min-w-0 overflow-hidden">
+        <div className="bg-[#00A859] text-white px-4 py-2 flex items-center justify-between font-bold text-sm uppercase tracking-wide">
+          <span>Kết quả tìm kiếm ({resultCount})</span>
         </div>
 
         {/* Tab 1: LỊCH BẢO DƯỠNG (SCHEDULE) */}
         {currentTab === 'schedule' && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-gray-50 text-gray-600 font-semibold border-b">
+              <thead className="bg-gray-50 border-b text-gray-600 [&_th]:font-bold">
                 <tr>
                   <th className="p-3">Phương tiện</th>
                   <th className="p-3">Trạm & Tài xế</th>
@@ -1131,18 +1015,7 @@ const PartnerMaintenance: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {schedules
-                  .filter((s) => isItemInScope(s.stationId))
-                  .filter((s) => (selectedStation === 'ALL' ? true : s.stationId === selectedStation))
-                  .filter((s) => (statusFilter === 'ALL' ? true : s.status === statusFilter))
-                  .filter(
-                    (s) =>
-                      !searchTerm ||
-                      s.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      s.brandModel.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      s.driverName.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
-                  .map((s) => {
+                {visibleSchedules.map((s) => {
                     const diffKm = s.nextDueOdo - s.currentOdo;
                     const percent = Math.min(100, Math.round((s.currentOdo / s.nextDueOdo) * 100));
 
@@ -1164,7 +1037,7 @@ const PartnerMaintenance: React.FC = () => {
                           <div className="text-[11px] text-gray-500">Lái xe: {s.driverName}</div>
                         </td>
                         <td className="p-3 text-right">
-                          <span className="font-mono font-bold text-gray-900">
+                          <span className="font-bold tabular-nums text-gray-900">
                             {s.currentOdo.toLocaleString('vi-VN')} km
                           </span>
                           <div className="text-[10px] text-emerald-600">Đồng bộ GPS</div>
@@ -1175,7 +1048,7 @@ const PartnerMaintenance: React.FC = () => {
                         </td>
                         <td className="p-3 w-52">
                           <div className="flex justify-between text-[11px] mb-1">
-                            <span className="font-mono text-gray-600">
+                            <span className="tabular-nums text-gray-600">
                               Hạn: <strong>{s.nextDueOdo.toLocaleString('vi-VN')} km</strong>
                             </span>
                             <span
@@ -1252,34 +1125,22 @@ const PartnerMaintenance: React.FC = () => {
         {currentTab === 'requests' && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-gray-50 text-gray-600 font-semibold border-b">
+              <thead className="bg-gray-50 border-b text-gray-600 [&_th]:font-bold">
                 <tr>
                   <th className="p-3">Mã yêu cầu</th>
                   <th className="p-3">Phương tiện</th>
                   <th className="p-3">Người báo hỏng</th>
                   <th className="p-3">Mức độ ưu tiên</th>
-                  <th className="p-3">Triệu chứng & Hư hỏng báo cáo</th>
+                  <th className="p-3">Nội dung triệu chứng</th>
                   <th className="p-3">Thời gian tạo</th>
                   <th className="p-3 text-center">Trạng thái</th>
-                  <th className="p-3 text-center w-36">Thao tác</th>
+                  <th className="p-3 text-center w-28">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {requests
-                  .filter((r) => isItemInScope(r.stationId))
-                  .filter((r) => (selectedStation === 'ALL' ? true : r.stationId === selectedStation))
-                  .filter((r) => (statusFilter === 'ALL' ? true : r.status === statusFilter))
-                  .filter(
-                    (r) =>
-                      !searchTerm ||
-                      r.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      r.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      r.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      r.requesterName.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
-                  .map((r) => (
+                {visibleRequests.map((r) => (
                     <tr key={r.id} className="hover:bg-gray-50/80 transition">
-                      <td className="p-3 font-mono font-bold text-gray-800">{r.id}</td>
+                      <td className="p-3 font-bold text-gray-800">{r.id}</td>
                       <td className="p-3">
                         <button
                           type="button"
@@ -1313,11 +1174,10 @@ const PartnerMaintenance: React.FC = () => {
                           </span>
                         )}
                       </td>
-                      <td className="p-3 max-w-sm">
-                        <div className="font-bold text-gray-900">{r.title}</div>
-                        <div className="text-[11px] text-gray-600 line-clamp-2 mt-0.5">{r.description}</div>
+                      <td className="p-3 max-w-xs">
+                        <div className="font-semibold text-gray-900 line-clamp-2" title={r.title}>{r.title}</div>
                         {r.rejectReason && (
-                          <div className="mt-1 text-[10px] text-red-600 bg-red-50 p-1 rounded">
+                          <div className="mt-1 line-clamp-1 text-[10px] text-red-600" title={r.rejectReason}>
                             Lý do từ chối: {r.rejectReason}
                           </div>
                         )}
@@ -1340,23 +1200,26 @@ const PartnerMaintenance: React.FC = () => {
                           </span>
                         )}
                       </td>
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center whitespace-nowrap">
                         {r.status === 'PENDING' ? (
-                          <div className="flex items-center justify-center gap-1">
+                          <div className="inline-flex items-center justify-center gap-0.5">
                             <button
                               type="button"
                               onClick={() => handleApproveRequest(r)}
-                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px] transition shadow-xs"
+                              title="Duyệt và tạo lệnh xưởng"
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-bold text-[#0E8F47] hover:bg-emerald-50"
                             >
-                              Duyệt & Tạo lệnh
+                              <Check size={14} />
+                              Duyệt
                             </button>
                             <button
                               type="button"
                               onClick={() => handleRejectRequest(r.id)}
-                              className="p-1 text-red-500 hover:bg-red-50 rounded"
                               title="Từ chối yêu cầu"
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-bold text-red-600 hover:bg-red-50"
                             >
                               <X size={14} />
+                              Từ chối
                             </button>
                           </div>
                         ) : (
@@ -1374,7 +1237,7 @@ const PartnerMaintenance: React.FC = () => {
         {currentTab === 'orders' && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-gray-50 text-gray-600 font-semibold border-b">
+              <thead className="bg-gray-50 border-b text-gray-600 [&_th]:font-bold">
                 <tr>
                   <th className="p-3">Mã lệnh xưởng</th>
                   <th className="p-3">Phương tiện</th>
@@ -1387,24 +1250,12 @@ const PartnerMaintenance: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {workOrders
-                  .filter((w) => isItemInScope(w.stationId))
-                  .filter((w) => (selectedStation === 'ALL' ? true : w.stationId === selectedStation))
-                  .filter((w) => (statusFilter === 'ALL' ? true : w.status === statusFilter))
-                  .filter(
-                    (w) =>
-                      !searchTerm ||
-                      w.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      w.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      w.typeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      w.garageName.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
-                  .map((w) => (
+                {visibleOrders.map((w) => (
                     <tr key={w.id} className="hover:bg-gray-50/80 transition">
-                      <td className="p-3 font-mono font-bold text-gray-800">
+                      <td className="p-3 font-bold text-gray-800">
                         {w.id}
                         {w.downtimeHours > 0 && (
-                          <div className="text-[10px] text-red-600 font-sans font-medium flex items-center gap-0.5 mt-0.5">
+                          <div className="text-[10px] text-red-600 font-medium flex items-center gap-0.5 mt-0.5">
                             <Clock size={10} /> Dừng: {w.downtimeHours}h
                           </div>
                         )}
@@ -1438,7 +1289,7 @@ const PartnerMaintenance: React.FC = () => {
                         <div className="text-gray-500">Xong: {w.expectedEndDate}</div>
                       </td>
                       <td className="p-3 text-right">
-                        <span className="font-mono font-bold text-gray-900">
+                        <span className="font-bold tabular-nums text-gray-900">
                           {w.estimatedCost.toLocaleString('vi-VN')} đ
                         </span>
                       </td>
@@ -1488,7 +1339,7 @@ const PartnerMaintenance: React.FC = () => {
         {currentTab === 'history' && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-gray-50 text-gray-600 font-semibold border-b">
+              <thead className="bg-gray-50 border-b text-gray-600 [&_th]:font-bold">
                 <tr>
                   <th className="p-3">Mã phiếu</th>
                   <th className="p-3">Phương tiện & Trạm</th>
@@ -1501,20 +1352,9 @@ const PartnerMaintenance: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {historyList
-                  .filter((h) => isItemInScope(h.stationId))
-                  .filter((h) => (selectedStation === 'ALL' ? true : h.stationId === selectedStation))
-                  .filter(
-                    (h) =>
-                      !searchTerm ||
-                      h.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      h.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      h.typeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      h.garageName.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
-                  .map((h) => (
+                {visibleHistory.map((h) => (
                     <tr key={h.id} className="hover:bg-gray-50/80 transition">
-                      <td className="p-3 font-mono font-bold text-gray-800">{h.code}</td>
+                      <td className="p-3 font-bold text-gray-800">{h.code}</td>
                       <td className="p-3">
                         <button
                           type="button"
@@ -1540,7 +1380,7 @@ const PartnerMaintenance: React.FC = () => {
                         <div className="text-[10px] text-gray-500">Bàn giao: {h.technicianOrDriver}</div>
                       </td>
                       <td className="p-3 text-right">
-                        <span className="font-mono font-extrabold text-emerald-700">
+                        <span className="font-bold tabular-nums text-emerald-700">
                           {h.cost.toLocaleString('vi-VN')} đ
                         </span>
                       </td>
@@ -1574,6 +1414,7 @@ const PartnerMaintenance: React.FC = () => {
 
       {/* MODAL 1: ĐIỀU CHỈNH CHU KỲ BẢO DƯỠNG (SCHEDULE) */}
       <PartnerModal
+        compact
         open={scheduleModalOpen}
         title={`Điều chỉnh chu kỳ bảo dưỡng xe ${editingSchedule?.plate}`}
         icon={<Calendar size={20} className="text-[#00A859]" />}
@@ -1637,21 +1478,24 @@ const PartnerMaintenance: React.FC = () => {
 
           <div>
             <label className={partnerLabelClass}>Chu kỳ tiêu chuẩn lặp lại (km)</label>
-            <select
-              value={scheduleForm.standardCycleKm}
-              onChange={(e) => setScheduleForm({ ...scheduleForm, standardCycleKm: Number(e.target.value) })}
-              className={inputClass}
-            >
-              <option value={5000}>Mỗi 5.000 km</option>
-              <option value={10000}>Mỗi 10.000 km</option>
-              <option value={20000}>Mỗi 20.000 km</option>
-            </select>
+            <AppSelect
+              value={String(scheduleForm.standardCycleKm)}
+              onChange={(value) => setScheduleForm({ ...scheduleForm, standardCycleKm: Number(value) })}
+              className={modalSelectClass}
+              options={[
+                { value: '5000', label: 'Mỗi 5.000 km' },
+                { value: '10000', label: 'Mỗi 10.000 km' },
+                { value: '20000', label: 'Mỗi 20.000 km' },
+              ]}
+            />
           </div>
         </div>
       </PartnerModal>
 
       {/* MODAL 2: TẠO YÊU CẦU SỬA CHỮA (REQUEST) */}
       <PartnerModal
+        compact
+        xl
         open={requestModalOpen}
         title="Tạo yêu cầu sửa chữa xe / Báo hỏng sự cố"
         icon={<AlertTriangle size={20} className="text-orange-500" />}
@@ -1680,45 +1524,34 @@ const PartnerMaintenance: React.FC = () => {
             <label className={partnerLabelClass}>
               Chọn phương tiện báo sự cố <span className="text-red-500">*</span>
             </label>
-            <select
+            <AppSelect
+              searchable
+              searchPlaceholder="Tìm biển số, dòng xe, trạm"
               value={requestForm.vehicleId}
-              onChange={(e) => setRequestForm({ ...requestForm, vehicleId: e.target.value })}
-              className={inputClass}
-            >
-              {VEHICLES.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.plate} - {v.brand} {v.modelLine} ({orgName(v.stationId)})
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setRequestForm({ ...requestForm, vehicleId: value })}
+              className={modalSelectClass}
+              options={VEHICLE_SELECT_OPTIONS}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={partnerLabelClass}>Mức độ ưu tiên</label>
-              <select
+              <AppSelect
                 value={requestForm.priority}
-                onChange={(e) => setRequestForm({ ...requestForm, priority: e.target.value as any })}
-                className={inputClass}
-              >
-                <option value="EMERGENCY">🚨 Khẩn cấp (Dừng xe ngay)</option>
-                <option value="HIGH">⚠ Cao (Khắc phục trong 24h)</option>
-                <option value="NORMAL">Bình thường (Theo lịch)</option>
-              </select>
+                onChange={(value) => setRequestForm({ ...requestForm, priority: value as typeof requestForm.priority })}
+                className={modalSelectClass}
+                options={PRIORITY_OPTIONS}
+              />
             </div>
             <div>
               <label className={partnerLabelClass}>Nhóm bộ phận gặp sự cố</label>
-              <select
+              <AppSelect
                 value={requestForm.issueCategory}
-                onChange={(e) => setRequestForm({ ...requestForm, issueCategory: e.target.value as any })}
-                className={inputClass}
-              >
-                <option value="HYDRAULIC_CRANE">Cẩu & Ray sàn trượt thủy lực</option>
-                <option value="BRAKE_TIRE">Lốp & Hệ thống phanh</option>
-                <option value="ENGINE">Động cơ & Hộp số</option>
-                <option value="ELECTRICAL">Hệ thống điện & Đèn cứu hộ</option>
-                <option value="OTHER">Bộ phận khác</option>
-              </select>
+                onChange={(value) => setRequestForm({ ...requestForm, issueCategory: value as RepairRequestItem['issueCategory'] })}
+                className={modalSelectClass}
+                options={ISSUE_CATEGORY_OPTIONS}
+              />
             </div>
           </div>
 
@@ -1738,11 +1571,11 @@ const PartnerMaintenance: React.FC = () => {
           <div>
             <label className={partnerLabelClass}>Mô tả chi tiết triệu chứng & Hiện trường</label>
             <textarea
-              rows={3}
+              rows={6}
               value={requestForm.description}
               onChange={(e) => setRequestForm({ ...requestForm, description: e.target.value })}
               placeholder="Mô tả cụ thể thời điểm phát hiện, tiếng kêu lạ, rỉ nhớt, tải trọng..."
-              className={`${inputClass} resize-none`}
+              className={`${inputClass} !h-auto min-h-36 resize-y py-3 leading-5`}
             />
           </div>
         </div>
@@ -1751,6 +1584,8 @@ const PartnerMaintenance: React.FC = () => {
       {/* MODAL 3: TẠO LỆNH BẢO DƯỠNG / SỬA CHỮA (WORK ORDER) */}
       <PartnerModal
         open={workOrderModalOpen}
+        compact
+        xl
         title="Tạo lệnh bảo dưỡng / sửa chữa đưa xe vào xưởng"
         icon={<Wrench size={20} className="text-[#00A859]" />}
         onClose={() => setWorkOrderModalOpen(false)}
@@ -1773,35 +1608,33 @@ const PartnerMaintenance: React.FC = () => {
           </>
         )}
       >
-        <div className="space-y-3.5 text-xs max-h-[75vh] overflow-y-auto pr-1">
+        <div className="space-y-3.5 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={partnerLabelClass}>
                 Phương tiện <span className="text-red-500">*</span>
               </label>
-              <select
+              <AppSelect
+                searchable
+                searchPlaceholder="Tìm biển số, dòng xe, trạm"
                 value={workOrderForm.vehicleId}
-                onChange={(e) => setWorkOrderForm({ ...workOrderForm, vehicleId: e.target.value })}
-                className={inputClass}
-              >
-                {VEHICLES.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.plate} ({v.brand})
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setWorkOrderForm({ ...workOrderForm, vehicleId: value })}
+                className={modalSelectClass}
+                options={VEHICLE_SELECT_OPTIONS}
+              />
             </div>
             <div>
               <label className={partnerLabelClass}>Loại hình lệnh</label>
-              <select
+              <AppSelect
                 value={workOrderForm.type}
-                onChange={(e) => setWorkOrderForm({ ...workOrderForm, type: e.target.value as any })}
-                className={inputClass}
-              >
-                <option value="PERIODIC">Bảo dưỡng định kỳ</option>
-                <option value="REPAIR">Sửa chữa sự cố phát sinh</option>
-                <option value="EMERGENCY">Khắc phục khẩn cấp</option>
-              </select>
+                onChange={(value) => setWorkOrderForm({ ...workOrderForm, type: value as typeof workOrderForm.type })}
+                className={modalSelectClass}
+                options={[
+                  { value: 'PERIODIC', label: 'Bảo dưỡng định kỳ' },
+                  { value: 'REPAIR', label: 'Sửa chữa sự cố phát sinh' },
+                  { value: 'EMERGENCY', label: 'Khắc phục khẩn cấp' },
+                ]}
+              />
             </div>
           </div>
 
@@ -1870,14 +1703,42 @@ const PartnerMaintenance: React.FC = () => {
           </div>
 
           <div>
-            <label className={partnerLabelClass}>Danh mục hạng mục sửa chữa / vật tư thay thế</label>
-            <textarea
-              rows={3}
-              value={workOrderForm.itemsText}
-              onChange={(e) => setWorkOrderForm({ ...workOrderForm, itemsText: e.target.value })}
-              placeholder="Nhập mỗi hạng mục trên 1 dòng..."
-              className={`${inputClass} font-mono text-[11px] resize-none`}
-            />
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label className={`${partnerLabelClass} mb-0`}>Danh mục hạng mục sửa chữa / vật tư thay thế</label>
+              <button
+                type="button"
+                onClick={() => setItemLines([...itemLines, ''])}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-[#0E8F47] hover:underline"
+              >
+                <Plus size={13} />
+                Thêm hạng mục
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {itemLines.map((line, index) => (
+                <div key={index} className="flex min-w-0 items-center gap-2">
+                  <span className="w-5 shrink-0 text-center text-[11px] font-semibold text-gray-400">{index + 1}</span>
+                  <input
+                    value={line}
+                    onChange={(e) => {
+                      const next = [...itemLines];
+                      next[index] = e.target.value;
+                      setItemLines(next);
+                    }}
+                    placeholder="Một hạng mục sửa chữa"
+                    className={inputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setItemLines(itemLines.filter((_, i) => i !== index))}
+                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                    aria-label={`Xóa hạng mục ${index + 1}`}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -1900,6 +1761,8 @@ const PartnerMaintenance: React.FC = () => {
       {/* MODAL 4: NGHIỆM THU HOÀN THÀNH LỆNH BẢO DƯỠNG (INSPECTION & RETURN TO READY) */}
       <PartnerModal
         open={completeOrderModalOpen}
+        compact
+        xl
         title={`Nghiệm thu bàn giao xe ${orderToComplete?.plate}`}
         icon={<CheckCircle2 size={20} className="text-[#00A859]" />}
         onClose={() => setCompleteOrderModalOpen(false)}
@@ -1917,7 +1780,7 @@ const PartnerMaintenance: React.FC = () => {
               onClick={handleConfirmCompleteOrder}
               className={partnerBtnBrand}
             >
-              Xác nhận nghiệm thu & Đưa xe về Sẵn sàng
+              Xác nhận
             </button>
           </>
         )}
@@ -1932,7 +1795,7 @@ const PartnerMaintenance: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={partnerLabelClass}>
-                Chi phí quyết toán thực tế (VNĐ) <span className="text-red-500">*</span>
+                Chi phí (VNĐ) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -1943,7 +1806,7 @@ const PartnerMaintenance: React.FC = () => {
             </div>
             <div>
               <label className={partnerLabelClass}>
-                ODO xe khi xuất xưởng (km) <span className="text-red-500">*</span>
+                ODO xuất xưởng (km) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -1955,7 +1818,7 @@ const PartnerMaintenance: React.FC = () => {
           </div>
 
           <div>
-            <label className={partnerLabelClass}>Người ký biên bản nghiệm thu xe</label>
+            <label className={partnerLabelClass}>Người ký biên bản</label>
             <input
               type="text"
               value={completeForm.technicianOrDriver}
@@ -1965,22 +1828,22 @@ const PartnerMaintenance: React.FC = () => {
           </div>
 
           <div>
-            <label className={partnerLabelClass}>Đính kèm hóa đơn VAT / Phiếu xuất xưởng (PDF, Ảnh)</label>
+            <label className={partnerLabelClass}>Tệp đính kèm</label>
             <FileDrop
               accept=".pdf,image/*"
               file={completeInvoiceFile}
-              hint="Kéo thả hoặc chọn tệp hóa đơn/biên bản"
+              hint="Hóa đơn VAT, Phiếu xuất xưởng (PDF, Ảnh)"
               onFile={setCompleteInvoiceFile}
             />
           </div>
 
           <div>
-            <label className={partnerLabelClass}>Ghi chú đánh giá sau thử tải</label>
-            <input
-              type="text"
+            <label className={partnerLabelClass}>Ghi chú</label>
+            <textarea
+              rows={4}
               value={completeForm.note}
               onChange={(e) => setCompleteForm({ ...completeForm, note: e.target.value })}
-              className={inputClass}
+              className={`${inputClass} !h-auto min-h-28 resize-y py-3 leading-6`}
             />
           </div>
         </div>
@@ -1988,6 +1851,7 @@ const PartnerMaintenance: React.FC = () => {
 
       {/* MODAL 5: XEM CHI TIẾT LỊCH SỬ BẢO DƯỠNG (DETAIL & INVOICE) */}
       <PartnerModal
+        compact
         open={!!previewHistory}
         title={`Chi tiết phiếu bảo dưỡng — ${previewHistory?.code}`}
         icon={<Wrench size={20} className="text-[#00A859]" />}
@@ -2006,12 +1870,12 @@ const PartnerMaintenance: React.FC = () => {
           <div className="space-y-4 text-xs">
             <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-blue-50 border border-emerald-100 rounded-xl space-y-1">
               <div className="flex justify-between items-center">
-                <span className="font-mono text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded">
+                <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded">
                   {previewHistory.code}
                 </span>
                 <span className="text-emerald-700 font-bold text-xs">Đã hoàn thành</span>
               </div>
-              <div className="font-bold text-sm text-gray-900 mt-1">{previewHistory.typeName}</div>
+              <div className="font-bold text-xs text-gray-900 mt-1">{previewHistory.typeName}</div>
               <div className="text-gray-600 text-[11px]">
                 Phương tiện: <strong>{previewHistory.plate}</strong> ({previewHistory.brandModel}) · Trạm:{' '}
                 <strong>{orgName(previewHistory.stationId)}</strong>
@@ -2026,7 +1890,7 @@ const PartnerMaintenance: React.FC = () => {
               </div>
               <div className="p-3 rounded-lg border border-emerald-100 bg-emerald-50/40">
                 <div className="text-[11px] text-gray-500">Chi phí nghiệm thu có VAT</div>
-                <div className="text-base font-extrabold text-emerald-700">
+                <div className="text-sm font-bold text-emerald-700">
                   {previewHistory.cost.toLocaleString('vi-VN')} đ
                 </div>
                 <div className="text-[10px] text-gray-500">ODO lúc làm: {previewHistory.odoKm.toLocaleString('vi-VN')} km</div>

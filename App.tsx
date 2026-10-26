@@ -534,11 +534,7 @@ const App: React.FC = () => {
     }
     if (currentStep === Step.PARTNER_TOOL_CONFIG) return ['Quản lý đội xe', 'Hồ sơ phương tiện', 'Cấu hình công cụ xe'];
     if (currentStep === Step.PARTNER_MAINTENANCE) {
-      const tab = new URLSearchParams(location.search).get('tab') || location.pathname.split('/partner/maintenance/')[1];
-      if (tab === 'requests') return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Yêu cầu sửa chữa'];
-      if (tab === 'orders') return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Lệnh sửa chữa / bảo dưỡng'];
-      if (tab === 'history') return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Lịch sử bảo dưỡng'];
-      return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa', 'Lịch bảo dưỡng'];
+      return ['Quản lý đội xe', 'Bảo dưỡng & Sửa chữa'];
     }
     if (currentStep === Step.PARTNER_STAFF) {
       if (location.pathname.endsWith('/partner/staff/new')) {

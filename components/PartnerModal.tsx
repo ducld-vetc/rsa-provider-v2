@@ -29,7 +29,8 @@ export const PartnerModal: React.FC<{
   footer: React.ReactNode;
   wide?: boolean;
   xl?: boolean;
-}> = ({ open, title, icon, onClose, children, footer, wide, xl }) => {
+  compact?: boolean;
+}> = ({ open, title, icon, onClose, children, footer, wide, xl, compact }) => {
   if (!open) return null;
   return (
     <div
@@ -45,7 +46,7 @@ export const PartnerModal: React.FC<{
           <span />
           <div className="col-start-2 flex items-center justify-center gap-2">
             {icon ? <span className="text-[#091b37]">{icon}</span> : null}
-            <h3 className="m-0 text-center text-base font-semibold leading-6 text-[#091b37]">{title}</h3>
+            <h3 className={`m-0 text-center font-semibold text-[#091b37] ${compact ? 'text-[13px] leading-5' : 'text-base leading-6'}`}>{title}</h3>
           </div>
           <button
             type="button"

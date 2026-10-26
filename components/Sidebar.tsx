@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
-  AlertTriangle,
   BarChart3,
   Building2,
   Calendar,
@@ -12,7 +11,6 @@ import {
   ClipboardList,
   DollarSign,
   GitBranch,
-  History,
   LayoutDashboard,
   LayoutGrid,
   MapPin,
@@ -91,12 +89,7 @@ const GROUP_PATHS: Record<string, string[]> = {
     '/partner/tool-config',
     '/partner/vehicle-tools',
   ],
-  fleetMaintenance: [
-    '/partner/maintenance?tab=schedule',
-    '/partner/maintenance?tab=requests',
-    '/partner/maintenance?tab=orders',
-    '/partner/maintenance?tab=history',
-  ],
+  fleetMaintenance: ['/partner/maintenance'],
   fleet: [
     '/partner/vehicles',
     '/partner/tool-config',
@@ -168,6 +161,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
     if (path === '/station/coverage') return location.pathname.startsWith('/station/coverage');
     if (path === '/partner/vehicles') return location.pathname.startsWith('/partner/vehicles');
+    if (path === '/partner/maintenance') return location.pathname.startsWith('/partner/maintenance');
     if (path === '/partner/tool-config') {
       return location.pathname.startsWith('/partner/tool-config') || location.pathname.startsWith('/partner/vehicle-tools');
     }
@@ -197,11 +191,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (GROUP_PATHS.fleetVehicles.some(p => isItemActive(p))) {
       return ['fleet', 'fleetVehicles'];
     }
-    if (
-      GROUP_PATHS.fleetMaintenance.some(p => isItemActive(p)) ||
-      location.pathname.startsWith('/partner/maintenance')
-    ) {
-      return ['fleet', 'fleetMaintenance'];
+    if (location.pathname.startsWith('/partner/maintenance')) {
+      return ['fleet'];
     }
     // Check other top-level groups
     for (const groupId of TOP_LEVEL_GROUPS) {
@@ -250,12 +241,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       setOpenGroups([]);
     } else {
       if (groupId === 'fleet') {
-        const activeSub =
-          GROUP_PATHS.fleetMaintenance.some(p => isItemActive(p)) ||
-          location.pathname.startsWith('/partner/maintenance')
-            ? 'fleetMaintenance'
-            : 'fleetVehicles';
-        setOpenGroups(['fleet', activeSub]);
+        const activeSub = location.pathname.startsWith('/partner/vehicles') || location.pathname.startsWith('/partner/tool-config')
+          ? 'fleetVehicles'
+          : '';
+        setOpenGroups(activeSub ? ['fleet', activeSub] : ['fleet']);
       } else {
         setOpenGroups([groupId]);
       }
@@ -508,10 +497,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {renderSectionHeader('fleet', 'Quản lý đội xe', Car, [
             '/partner/vehicles',
             '/partner/tool-config',
-            '/partner/maintenance?tab=schedule',
-            '/partner/maintenance?tab=requests',
-            '/partner/maintenance?tab=orders',
-            '/partner/maintenance?tab=history',
+            '/partner/maintenance',
           ])}
           {isGroupOpen('fleet') && (
             <div className="space-y-1 pt-0.5 border-l-2 border-gray-100 ml-4 pl-1">
@@ -531,43 +517,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
 
-              {/* Submenu: Quản lý bảo dưỡng */}
-              <div>
-                {renderSubmenuHeader('fleetMaintenance', 'Bảo dưỡng & Sửa chữa', Wrench, [
-                  '/partner/maintenance?tab=schedule',
-                  '/partner/maintenance?tab=requests',
-                  '/partner/maintenance?tab=orders',
-                  '/partner/maintenance?tab=history',
-                ])}
-                {isGroupOpen('fleetMaintenance') && (
-                  <div className="space-y-0.5 mt-0.5 ml-4 pl-2 border-l border-gray-200">
-                    {renderNavItem(
-                      '/partner/maintenance?tab=schedule',
-                      'Lịch bảo dưỡng',
-                      Calendar,
-                      { indent: false }
-                    )}
-                    {renderNavItem(
-                      '/partner/maintenance?tab=requests',
-                      'Yêu cầu sửa chữa',
-                      AlertTriangle,
-                      { indent: false }
-                    )}
-                    {renderNavItem(
-                      '/partner/maintenance?tab=orders',
-                      'Lệnh sửa chữa / bảo dưỡng',
-                      ClipboardList,
-                      { indent: false }
-                    )}
-                    {renderNavItem(
-                      '/partner/maintenance?tab=history',
-                      'Lịch sử bảo dưỡng',
-                      History,
-                      { indent: false }
-                    )}
-                  </div>
-                )}
-              </div>
+              {renderNavItem('/partner/maintenance', 'Bảo dưỡng & Sửa chữa', Wrench)}
             </div>
           )}
         </div>
